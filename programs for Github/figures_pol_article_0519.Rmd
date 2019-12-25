@@ -1,0 +1,215 @@
+---
+title: "fig_vl_pol_v3"
+author: "James R. Hunter"
+date: "5/13/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages
+
+```{r loadmods, echo = TRUE, message = FALSE}
+library(tidyverse)
+library(DescTools)
+library(knitr)
+library(RColorBrewer)
+library(readxl)
+library(ggpubr)
+library(kableExtra)
+library(stringr)
+options(scipen = 5)
+```
+
+## Figure 2 Viral Load Evolution by Reversion Group 
+
+```{r fig2_cv}
+avgvl <- readRDS("avgvl_rev_fig1.rds") %>% 
+   filter(grupo != "control") %>% 
+   mutate(grupo = case_when(
+      grupo == "none" ~ "no reversion",
+      grupo == "partial" ~ "low reversion",
+      grupo == "total" ~ "high reversion",
+      grupo == "all_resist" ~ "all resist"   )) %>% 
+   mutate(grupo = factor(grupo, levels = c("no reversion", 
+                                           "low reversion",
+                                           "high reversion",
+                                           "all resist")))
+
+kable(avgvl)
+
+fig2cv <- ggline(data = avgvl, x = "wk", y = "avg", 
+       group = "grupo", 
+       palette = "aaas", 
+       color = "grupo",
+       plot_type = "b", 
+       legend = "bottom",
+       legend.title = "",
+       title = "Mean Viral Load Evolution by Group", 
+       font.main = c(16),
+       xlab = "Week/Test", 
+       ylab = "Mean Viral Load (log10 copies/mL)", 
+       ggtheme = theme_gray())
+fig2cv
+
+```
+
+## Figure 3 CD4 counts
+
+```{r cd4, echo = FALSE}
+avgcd4 <- readRDS("avgcd4_rev_fig2.rds") %>% 
+   filter(grupo != "control") %>% 
+   mutate(round_avg = round(avg, 1)) %>% 
+   mutate(grupo = case_when(
+      grupo == "none" ~ "no reversion",
+      grupo == "partial" ~ "low reversion",
+      grupo == "total" ~ "high reversion",
+      grupo == "all_resist" ~ "all resist"   )) %>% 
+   mutate(grupo = factor(grupo, levels = c("no reversion", 
+                                           "low reversion",
+                                           "high reversion",
+                                           "all resist")))
+# Draw Figure 3 graph -- CD4
+cd4fig3 <- ggline(data = avgcd4, x = "wk", y = "avg", 
+       group = "grupo", 
+       palette = "aaas", 
+       color = "grupo",
+       plot_type = "b", 
+       legend = "bottom",
+       legend.title = "",
+       label = "round_avg",
+       font.label = list(size = 9, color = "grupo"),
+       repel = TRUE,
+       title = "Mean CD4+ T Cell Evolution by Reversion Group", 
+       font.main = c(16),
+       xlab = "Week/Test", 
+       ylab = "Mean CD4 T cell count (cells/mL)", 
+       ggtheme = theme_gray())
+cd4fig3
+```
+
+## Figure S1: CD8 -- new reversion groups
+
+
+```{r cd8, echo = FALSE}
+avgcd8 <- readRDS("avgcd8_rev_figs1.rds") %>% 
+   filter(grupo != "control") %>% 
+   mutate(round_avg = round(avg, 1)) %>% 
+   ungroup() %>% 
+   mutate(grupo = case_when(
+      grupo == "none" ~ "no reversion",
+      grupo == "partial" ~ "low reversion",
+      grupo == "total" ~ "high reversion",
+      grupo == "all_resist" ~ "all resist"   )) %>% 
+   mutate(grupo = factor(grupo, levels = c("no reversion", 
+                                           "low reversion",
+                                           "high reversion",
+                                           "all resist")))
+
+# Draw Figure S1 graph -- CD8
+cd8figs1 <- ggline(data = avgcd8, x = "wk", y = "avg", 
+       group = "grupo", 
+       palette = "aaas", 
+       color = "grupo",
+       plot_type = "b", 
+       legend = "bottom",
+       legend.title = "",
+       label = "round_avg",
+       font.label = list(size = 9, color = "grupo"),
+       repel = TRUE,
+       title = "Mean CD8+ T Cell Evolution by Reversion Group", 
+       font.main = c(16),
+       xlab = "Week/Test", 
+       ylab = "Mean CD8 T cell count (cells/mL)", 
+       ggtheme = theme_gray())
+cd8figs1
+
+```
+
+## Cell Activation Figure 7
+
+```{r}
+## read in cell activation data
+
+cell_act <- readRDS("cell_act_final.rds")
+## Revise level names
+
+cell_act <- cell_act %>% 
+   mutate(group = factor(group, labels = c("none", "high", "low")))
+```
+
+## Summary data of groups by resistance markers on cd8+ T cells -- not adjusted for cv
+
+```{r group_act}
+group_act <- cell_act %>% 
+   group_by(group, visit) %>% 
+   summarise(cd38_hladr_mean = mean(cd8_cd38_hladr_pct, na.rm = TRUE),
+             cd38_hladr_sd = sd(cd8_cd38_hladr_pct, na.rm = TRUE),
+             cd38_mean = mean(cd38, na.rm = TRUE),
+             cd38_sd = sd(cd38, na.rm = TRUE),
+             hla_dr_mean = mean(hla_dr, na.rm = TRUE),
+             hla_dr_sd = sd(hla_dr, na.rm = TRUE))
+kable(group_act)
+```
+
+## Graph of Difference among Reversion Groups for %CD38+ HLA-DR+ CD8 T-cells
+
+```{r gg_cd38hla, message = FALSE, warning = FALSE}
+
+my_comparisons <- list(c("none", "total"), c("total", "partial"))
+gg_box_cd38hla <- cell_act %>% 
+   mutate(visit = case_when(
+      visit == 1 ~ "baseline",
+      visit == 2 ~ "week 4",
+      visit == 3 ~ "week 8",
+      visit == 4 ~ "week 12"
+   )) %>% 
+   mutate(visit = factor(visit, levels = c("baseline", "week 4", "week 8", 
+                                           "week 12"))) %>% 
+   ggboxplot(x = "group", y = "cd8_cd38_hladr_pct",
+             color = "group", 
+             palette = "uchicago",
+             title = "",
+             xlab = "Reversion Group", 
+             ylab = "%CD38+ HLA-DR+ CD8 T-cells",
+             add = "jitter",
+             legend = "none",
+             ggtheme = theme_grey())
+gg_box_cd38hla <- gg_box_cd38hla + stat_compare_means(comparisons = my_comparisons, 
+                                    label = "p.format")
+## Log graph for 2nd panel of graph
+
+gg_box_log_cd38hla <- cell_act %>% 
+   mutate(visit = case_when(
+      visit == 1 ~ "baseline",
+      visit == 2 ~ "week 4",
+      visit == 3 ~ "week 8",
+      visit == 4 ~ "week 12"
+   )) %>% 
+   mutate(visit = factor(visit, levels = c("baseline", "week 4", "week 8", 
+                                           "week 12")),
+          y_correct = cd8_cd38_hladr_pct/log) %>% 
+   ggboxplot(x = "group", y = "y_correct",
+             color = "group", 
+             palette = "uchicago",
+             title = "",
+             xlab = "", 
+             ylab = "",
+             add = "jitter",
+             legend = "none",
+             ggtheme = theme_grey())
+gg_box_log_cd38hla <- gg_box_log_cd38hla + stat_compare_means(comparisons = my_comparisons, 
+                                    label = "p.format")
+
+gg_box_CA_plots <- ggarrange(gg_box_cd38hla, gg_box_log_cd38hla,  
+                  ncol = 2, nrow = 1,
+                  labels = c("Uncorrected", "Corrected"),
+                  vjust = 2.5)
+
+gg_box_CA_plots
+
+saveRDS(gg_box_CA_plots, file = "gg_box_CA_plots.rds")
+```
+

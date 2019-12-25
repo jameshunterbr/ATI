@@ -1,0 +1,211 @@
+---
+title: "Table 3 Mean VL, CD4, CD8 by Group"
+author: "James R. Hunter"
+date: "31/7/2018"
+output: pdf_document
+tables: yes
+editor_options:
+  chunk_output_type: inline
+version: 2
+---
+
+## Objective
+
+Objective is to check and revise the p values for Table 3 (Means for Viral Load by Reversion Group)
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages
+
+```{r loadmods, echo = TRUE, message = FALSE}
+library(tidyverse)
+library(DescTools)
+library(knitr)
+library(RColorBrewer)
+library(readxl)
+library(ggpubr)
+library(kableExtra)
+library(stringr)
+options(scipen = 1)
+```
+
+## Load Data
+
+```{r loaddata}
+##avgvl_rev <- readRDS("../avgvl_rev_fig1.rds")
+##kable(avgvl_rev)
+# pacdata_rev <- readRDS("pacdata_rev.rds")
+pacdat2_rev <- readRDS("../pacdat2_rev.rds")
+```
+
+## Wilcoxon tests of difference within groups between weeks [Not executed]
+
+Do Wilcoxon tests of differences between visits within groups. However, tests do not show any difference among the groups. All are suggested to be not significant. However, ranks are the same, except for inversion of 3 and 4 for "none" class
+
+```{r wilcox, eval = FALSE}
+# p-values by t.test
+options(scipen = 1)
+wilcox.test(avgvl_rev$avg[avgvl_rev$grupo == "none"], alternative = "two.sided")
+wilcox.test(avgvl_rev$avg[avgvl_rev$grupo == "partial"], alternative = "two.sided")
+wilcox.test(avgvl_rev$avg[avgvl_rev$grupo == "total"], alternative = "two.sided")
+rank(avgvl_rev$avg[avgvl_rev$grupo == "none"])
+rank(avgvl_rev$avg[avgvl_rev$grupo == "partial"])
+rank(avgvl_rev$avg[avgvl_rev$grupo == "total"])
+```
+
+## Table of means paired's test of Viral Load by Reversion Group
+
+```{r}
+resistpaccv_rev <- pacdat2_rev %>% 
+   filter(type == "cv" & resist == "R") %>% 
+   mutate(grupo = case_when(grupo == 1 ~ "None",
+                            grupo == 2 ~ "Total",
+                            grupo == 3 ~ "Partial")) %>% 
+   mutate(logcv = log10(value))
+
+avglogvl <- resistpaccv_rev %>% 
+   group_by(grupo, wk) %>% 
+   summarize(mean(logcv))
+
+avglogvl
+
+paired_t_test <- function(group) {
+   base <- resistpaccv_rev$logcv[resistpaccv_rev$wk == 0 & 
+                             resistpaccv_rev$grupo == group]
+   end <- resistpaccv_rev$logcv[resistpaccv_rev$wk == 12 & 
+                             resistpaccv_rev$grupo == group]
+   t.test(end, base, paired = TRUE)
+}
+# None
+paired_t_test("None")
+# Partial
+paired_t_test("Partial")
+#Total
+paired_t_test("Total")
+
+## All resistant cases
+all_base <- resistpaccv_rev$logcv[resistpaccv_rev$wk == 0]
+all_end <- resistpaccv_rev$logcv[resistpaccv_rev$wk == 12]
+t.test(all_end, all_base, paired = TRUE)
+```
+
+## Overall resistance t-test
+
+```{r overall}
+Desc(resistpaccv_rev$logcv)
+t.test(resistpaccv_rev$logcv[resistpaccv_rev$wk == 12],
+       resistpaccv_rev$logcv[resistpaccv_rev$wk == 0],
+       paired = TRUE)
+```
+
+## Table of means paired t test of CD4 by Reversion Group
+
+```{r}
+resistpaccd4_rev <- pacdat2_rev %>% 
+   filter(type == "cd4" & resist == "R") %>% 
+   mutate(grupo = case_when(grupo == 1 ~ "None",
+                            grupo == 2 ~ "Total",
+                            grupo == 3 ~ "Partial")) 
+
+avgcd4 <- resistpaccd4_rev %>% 
+   group_by(grupo, wk) %>% 
+   summarize(mean(value))
+
+avgcd4
+
+paired_t_test <- function(group) {
+   base <- resistpaccd4_rev$value[resistpaccd4_rev$wk == 12 & 
+                             resistpaccd4_rev$grupo == group]
+   end <- resistpaccd4_rev$value[resistpaccd4_rev$wk == 0 & 
+                             resistpaccd4_rev$grupo == group]
+   t.test(end, base, paired = TRUE)
+}
+# None
+paired_t_test("None")
+# Partial
+paired_t_test("Partial")
+#Total
+paired_t_test("Total")
+```
+
+## Average Decline for REsistant Patients
+
+```{r declineCD4}
+resistpaccd4_rev$decline <- 
+   resistpaccd4_rev$value[resistpaccd4_rev$wk == "12"] -
+   resistpaccd4_rev$value[resistpaccd4_rev$wk == "0"]
+mean(resistpaccd4_rev$decline)   
+```
+
+## Overall t-test for CD4
+
+```{r overall_cd4}
+Desc(resistpaccd4_rev$value)
+t.test(resistpaccd4_rev$value[resistpaccd4_rev$wk == 12],
+       resistpaccd4_rev$value[resistpaccd4_rev$wk == 0],
+       paired = TRUE)
+wilcox.test(resistpaccd4_rev$value[resistpaccd4_rev$wk == 0],
+       resistpaccd4_rev$value[resistpaccd4_rev$wk == 12],
+       paired = TRUE, alternative = "two.sided")
+```
+
+# CD8
+
+## Table of means paired t test of CD8 by Reversion Group
+
+```{r cd8groups}
+resistpaccd8_rev <- pacdat2_rev %>% 
+   filter(type == "cd8" & resist == "R") %>% 
+   mutate(grupo = case_when(grupo == 1 ~ "None",
+                            grupo == 2 ~ "Total",
+                            grupo == 3 ~ "Partial")) 
+
+avgcd8 <- resistpaccd8_rev %>% 
+   group_by(grupo, wk) %>% 
+   summarize(mean(value))
+
+avgcd8
+
+paired_t_test <- function(group) {
+   base <- resistpaccd8_rev$value[resistpaccd8_rev$wk == 12 & 
+                             resistpaccd8_rev$grupo == group]
+   end <- resistpaccd8_rev$value[resistpaccd8_rev$wk == 0 & 
+                             resistpaccd8_rev$grupo == group]
+   t.test(end, base, paired = TRUE)
+}
+# None
+paired_t_test("None")
+# Partial
+paired_t_test("Partial")
+#Total
+paired_t_test("Total")
+```
+
+## Average Decline for REsistant Patients
+
+```{r declineCD8}
+resistpaccd8_rev$change <- 
+   resistpaccd8_rev$value[resistpaccd4_rev$wk == "12"] -
+   resistpaccd8_rev$value[resistpaccd4_rev$wk == "0"]
+mean(resistpaccd8_rev$change)
+sd(resistpaccd8_rev$change)
+```
+
+## Overall t-test for CD8
+
+```{r overall_cd8}
+Desc(resistpaccd8_rev$value)
+t.test(resistpaccd8_rev$value[resistpaccd8_rev$wk == 12],
+       resistpaccd8_rev$value[resistpaccd8_rev$wk == 0],
+       paired = TRUE)
+wilcox.test(resistpaccd8_rev$value[resistpaccd8_rev$wk == 0],
+       resistpaccd8_rev$value[resistpaccd8_rev$wk == 12],
+       paired = TRUE, alternative = "two.sided")
+```
+
+
+
+

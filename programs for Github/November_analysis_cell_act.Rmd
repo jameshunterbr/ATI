@@ -1,0 +1,229 @@
+---
+title: "November Analysis"
+author: "James Hunter"
+date: "11 November 2016"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages
+```{r loadpack}
+suppressMessages(library(tidyverse))
+suppressPackageStartupMessages(library(DescTools))
+suppressPackageStartupMessages(library(caret))
+suppressPackageStartupMessages(library(RColorBrewer))
+suppressPackageStartupMessages(library(rafalib))
+suppressPackageStartupMessages(library(WVPlots))
+hmcol <- colorRampPalette(rev(brewer.pal(4, "Dark2")))(4)
+options(scipen = 1000)
+```
+
+## Load Data
+```{r loaddata, eval = FALSE}
+load("pacdat.RData")
+# Load data from SPSS file - data does not contain the variables required
+# library(foreign)
+# spss_data <- read.spss("tese_PBMC_final n=35.sav", to.data.frame = TRUE)
+# colnames(spss_data)
+# save(spss_data, file = "spss_data.RData")
+act_data <- read_csv("STI_raw_activation.csv")
+# check data structure
+str(act_data)
+
+
+## Create calculated form of variables to control rounding errors in 
+## original spreadsheet (esp. csv form)
+## cd4_rel and cd8_rel not used so not calculated
+
+# log cv
+act_data <- act_data %>% mutate(logcalc = log10(cviral))
+cviral0 <- which(act_data$cviral == 0)
+# change the logcalc that would be -inf (i.e., cviral = 0) to 0
+act_data$logcalc[cviral0] <- 0
+
+# %NK
+act_data <- act_data %>% mutate(nk_pct_calc = (R3_1 + R3_2)/2) 
+
+# cd38_index
+act_data <- act_data %>% mutate(cd38_ind_calc = cd38/isto_FITC)
+
+# hladr_index
+act_data <- act_data %>% mutate(hladr_ind_calc = hla_dr/isto_PE)
+
+# cd8_cd38_pct
+act_data <- act_data %>% mutate(cd838_pct_calc = cd8_ur + cd8_lr)
+
+# cd8_hladr_pct 
+act_data <- act_data %>% mutate(cd8hla_pct_calc = cd8_ur + cd8_ul)
+
+# cd8_cd38_hladr_pct
+act_data <- act_data %>% mutate(cd838hlad_pct_calc = cd8_ur)
+
+## Create data frame relatings pacdata$pac (paciente) to act_data$subject 
+
+#   *  since the latter uses a different sequence
+
+#   *  Necessary to use a data point in common, e.g., cv at 1st visit
+   
+# Start by creating a version of act_data with only 1st visits
+
+act_visit12 <- act_data %>% filter(visit == 1) %>% select(subject, cviral)
+# add cviral value for 2nd visit as a confirmation
+act_visit12$cviral2 <- act_data$cviral[act_data$visit == 2]
+
+
+#Test for concordance between the DH.xls (act_data) data frame and the original #pac_data data frame
+
+# create empty data frame
+N <- nrow(act_visit12)
+concord <- data.frame(subject = integer(N),
+                      pac_no = integer(N),
+                      group = integer(N),
+                      cviral = integer(N),
+                      cv1_pac = integer(N),
+                      cviral2 = integer(N),
+                      cv2_pac = integer(N),
+                      match = logical(N))
+for (j in 1:nrow(actvisitx)) {
+   concord$subject[j] <- actvisitx$subject[j]
+   concord$pac_no[j] <- actvisitx$pac_no[j]
+   concord$cviral[j] <- actvisitx$cviral[j]
+   concord$cv1_pac[j] <- pacdata$cv1[which(pacdata$pac == 
+                                              as.numeric(actvisitx$pac_no[j]))]
+   concord$cviral2[j] <- actvisitx$cviral2[j]
+   concord$cv2_pac[j] <- pacdata$cv2[which(pacdata$pac == 
+                                              as.numeric(actvisitx$pac_no[j]))]
+   concord$match[j] <- ifelse(concord$cviral[j] == concord$cv1_pac[j] &&
+                                 concord$cviral2[j] == concord$cv2_pac[j], TRUE, FALSE)
+# If there are NA's in the match field, change them to FALSE
+   concord$match[j] <- ifelse(is.na(concord$match[j]), FALSE, concord$match[j])
+   concord$group[j] <- pacdata$grupo[which(pacdata$pac == 
+                                              as.numeric(actvisitx$pac_no[j]))] 
+}
+
+
+## There are a total of 16 records that meet the criteria. Set up a data frame
+## with those 16 records and then use that to subset the act_data data frame.
+
+match_data <- act_data[act_data$subject %in% concord$subject,]
+match_data <- cbind(match_data, group = )
+match_data <- match_data %>% select(subject:visit, logcalc, cd4_total, cd8_total,                                     cd38, hla_dr)
+## expand the group variable by 4 visits each and 
+## insert into match_data data frame
+match_data$group <- rep(concord$group, each = 4)
+save(match_data, act_data, file = "activation.RData")
+```
+
+## Load revised data
+```{r loadrevdata}
+load("activation.RData")
+
+```
+
+
+## Descriptive Stats of hla and cd38
+
+```{r descstats1}
+# First with matching data only so it can be associated with the groups
+Desc(match_data$cd38, main = "cd38", plotit = TRUE)
+Desc(match_data$hla_dr, main = "hla-dr", plotit = TRUE)
+Desc(logcalc ~ factor(visit), data = match_data, plotit = TRUE)
+Desc(logcalc ~ factor(group), data = match_data, plotit = TRUE)
+Desc(cd4_total ~ factor(visit), data = match_data, plotit = TRUE)
+Desc(cd4_total ~ factor(group), data = match_data, plotit = TRUE)
+Desc(cd38 ~ factor(visit), data = match_data, main = "cd38 by visit", plotit = TRUE)
+Desc(hla_dr ~ factor(visit), data = match_data, main = "hla_dr by visit", plotit = TRUE)
+Desc(cd38 ~ factor(group), data = match_data, main = "cd38 by group", plotit = TRUE)
+Desc(hla_dr ~ factor(group), data = match_data, main = "hla_dr by group", plotit = TRUE)
+
+## Now, using act_data, therefore no grouping
+Desc(act_data$cd38, main = "cd38", plotit = TRUE)
+Desc(act_data$hla_dr, main = "hla-dr", plotit = TRUE)
+Desc(logcalc ~ factor(visit), data = act_data, plotit = TRUE)
+Desc(cd4_total ~ factor(visit), data = act_data, plotit = TRUE)
+Desc(cd38 ~ factor(visit), data = act_data, main = "cd38 by visit", plotit = TRUE)
+Desc(hla_dr ~ factor(visit), data = act_data, main = "hla_dr by visit", plotit = TRUE)
+
+```
+
+## Relation of VL and cd4 and cd8 to HLA-DR and cd38
+Using test of the Ruggiero (2015) article, which stated that integrated HIV-1 DNA load was 0.5 log10 copies greater for each 50% increase in frequency of HLA-DR
+
+
+## Percentage change function - deltpct
+```{r deltpct}
+deltpct <- function(old, new) {
+   x <- (new - old) / old
+   return(x)
+}
+
+```
+
+
+## Do hla and cd38 increase as cd4 decreases?
+Compare & graph hla and cd38 against cd4 and cd8
+
+```{r compare}
+markerset <- select(act_data, cd4_total, logcalc, 
+                              hla_dr, cd4_total, cd8_total, cd38)
+car::scatterplotMatrix(markerset)
+cor(markerset, use = "pairwise.complete.obs", method = "spearman")
+# correlation tests on cd38 against vl and cd4
+cor.test(markerset$logcalc, markerset$cd38, use = "pairwise.complete.obs", method = "spearman")
+cor.test(markerset$cd4_total, markerset$cd38, use = "pairwise.complete.obs", method = "spearman")
+# correlation tests on hla against vl and cd4 - not expected to be significant
+cor.test(markerset$logcalc, markerset$hla_dr, use = "pairwise.complete.obs", method = "spearman")
+cor.test(markerset$cd4_total, markerset$hla_dr, use = "pairwise.complete.obs", method = "spearman")
+
+## graphs showing relationship between cd38 and the two variables
+# Histogram of cd38
+hist38 <- ggplot(act_data, aes(x = cd38)) + geom_histogram(bins = 15, fill = "black")
+hist38 <- hist38 + ggtitle("Distribution of cd38 across All Visits") 
+hist38 <- hist38 + xlab("cd 38 Count") + ylab("Occurrences")
+hist38
+# cd38 histogram per visit
+hist38v <- ggplot(act_data, aes(x = cd38)) + geom_histogram(bins = 15, fill = "black")
+hist38v <- hist38v + ggtitle("Distribution of cd38 by Visit") 
+hist38v <- hist38v + facet_grid(visit ~ .)
+hist38v <- hist38v + xlab("cd 38 Count") + ylab("Occurrences")
+hist38v
+
+# cd38 vs vl scatterplot no visit
+scat38vl <- ggplot(act_data, aes(x = cd38, y = logcalc))
+scat38vl <- scat38vl + ggtitle("Distribution of cd38 and Log10 Viral Load")
+scat38vl <- scat38vl + xlab("cd38") + ylab("log10 Viral Load") + labs(colour = "Visit")
+scat38vl <- scat38vl 
+scat38vl <- scat38vl + geom_point(shape = 16) + geom_smooth(method = "lm", na.rm = TRUE, colour = "darkred")
+scat38vl
+
+cd38vlmodel <- lm(cd38 ~ logcalc, data = act_data)
+summary(cd38vlmodel)
+
+# cd38 vs cd4 scatterplot no visit
+scat38cd <- ggplot(act_data, aes(y = cd38, x = cd4_total))
+scat38cd <- scat38cd + ggtitle("Distribution of cd38 and cd4 Count")
+scat38cd <- scat38cd + ylab("cd38") + xlab("cd4 Total Count") + labs(colour = "Visit")
+scat38cd <- scat38cd 
+scat38cd <- scat38cd + geom_point(shape = 16) + geom_smooth(method = "lm", na.rm = TRUE, colour = "darkred")
+scat38cd
+
+cd38cd4model <- lm(cd38 ~ cd4_total, data = act_data)
+summary(cd38cd4model)
+
+# cd38 vs vl scatterplot with visit
+scat38vl <- ggplot(act_data, aes(x = cd38, y = logcalc, colour = factor(visit)))
+scat38vl <- scat38vl + ggtitle("Distribution of cd38 and Log10 Viral Load")
+scat38vl <- scat38vl + xlab("cd38") + ylab("log10 Viral Load") + labs(colour = "Visit")
+scat38vl <- scat38vl + scale_colour_manual(values = hmcol)
+scat38vl <- scat38vl + geom_point(shape = 16) 
+scat38vl
+
+cd38vlvismod <- lm(cd38 ~ logcalc + visit, data = act_data)
+summary(cd38vlvismod)
+```
+
+
+

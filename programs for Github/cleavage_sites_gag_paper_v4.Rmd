@@ -1,0 +1,396 @@
+---
+title: "cleavage_sites_data_2201"
+author: "James R. Hunter"
+date: "1/17/2019"
+output:
+  pdf_document: default
+  word_document: default
+always_allow_html: yes
+version: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Sequences
+
+This chunk loads the following material into memory:
+
+1. necessary packages for analysis
+2. the list of hits from the survey of gag sequences
+3. the aligned sequences for the patients who have the sequences of interest 
+4. the summary of the correspondence between mutations in gag and those resistant to PR
+
+```{r load_items, message = FALSE, warning = FALSE}
+librarian::shelf(tidyverse, Biostrings, seqinr, msa, kableExtra, 
+                 helfRlein, knitr, ggpubr, DescTools, quiet = TRUE)
+sf2 <- readAAStringSet("sf2_gag_aa.fasta")
+hits <- readRDS("gag_hits_rule1a.rds")
+gag_data <- readRDS("gag_data.rds")
+allaa <- readRDS("gag_aa_all.rds")
+muts_file <- readRDS("muts_file.RDS")
+revert_muts <- readRDS("revert_muts.RDS")
+patients <- unique(muts_file$patient)
+new_uchic <- ggsci::pal_uchicago("default")(9)[1:2]
+options(scipen = 9)
+```
+
+## Identify Cleavage Sites
+
+*  List start and end points of gag cleavage sites with id for  reference SF-2.
+
+*  Codon numbers for specific patients will be different 
+```{r}
+cs_ref <- tibble(id = c("MA/CA", "CA/p2", "p2/NC", "NC/p1", "p1/p6"),
+             start = c(131, 362, 377, 431, 447),
+             end = start + 6,
+             seq = c("SQNYPIV", "ARVLAEA", "ANIMMQR", "RQANFLG", "PGNFLQS"))
+
+```
+
+## CS reversion rule function
+
+```{r cs_reversion_function}
+# input: single case (line of cs_seqs to be tested)
+# output: logical scalar of reversion status
+cs_rev_rule <- function(pre, post, sf) {
+   rev <- case_when(
+         is.na(pre) | is.na(post) ~ FALSE,
+         pre != sf & post == sf ~ TRUE,
+         TRUE ~ FALSE)
+}
+```
+
+
+## Create cleavage site data frame
+
+*  set up a tibble to hold cs data for each patient
+
+*  set up a loop for each patient
+
+*  open the alignment file for each patient
+
+*  transform alignment to a string
+
+*  find each cs sequence in the sf2 line
+
+*  record start/stop codons in cs_alignment data frame
+
+* Find all NA's and find out what the mutated sequence is
+
+
+```{r cs_df, eval = FALSE}
+cs_seqs <- tibble(patient = character(),
+                  cs_name = character(),
+                  start = integer(),
+                  end = integer(),
+                  pre_seq = character(),
+                  post_seq = character(),
+                  sf_seq = character(),
+                  rwt = logical())
+
+for (i in 1:length(patients)) {
+   filename <- paste0("gag_seq_pac_", patients[i], ".rds")
+   aligned_seq <- readRDS(filename)
+   str_1 <- as.character(as(AAMultipleAlignment(unmasked(aligned_seq)[1]), 
+                                    "MsaAAMultipleAlignment"))
+   str_2 <- as.character(as(AAMultipleAlignment(unmasked(aligned_seq)[2]), 
+                                    "MsaAAMultipleAlignment"))
+   str_3 <- as.character(as(AAMultipleAlignment(unmasked(aligned_seq)[3]), 
+                                    "MsaAAMultipleAlignment"))
+   ## Do test of strings and give them correct designation
+   ## Use last character of name: A = pre, 1 = SF, other = post
+   ## String 1
+   test_lett <- str_sub(names(str_1), start = -1L, end = -1L)
+   ifelse (test_lett == "A", pr_str  <-  unname(str_1), 
+           ifelse (test_lett == "1",  sf_str <- unname(str_1),
+                   po_str <- unname(str_1)))
+   # String 2
+   test_lett <- str_sub(names(str_2), start = -1L, end = -1L)
+   ifelse (test_lett == "A", pr_str  <-  unname(str_2), 
+           ifelse (test_lett == "1",  sf_str <- unname(str_2),
+                   po_str <- unname(str_2)))
+   # String 3
+   test_lett <- str_sub(names(str_3), start = -1L, end = -1L)
+   ifelse (test_lett == "A", pr_str  <-  unname(str_3), 
+           ifelse (test_lett == "1",  sf_str <- unname(str_3),
+                   po_str <- unname(str_3)))
+   
+
+  # locate each cs string in a loop
+   for (j in 1:5) {
+      cs_seqs <- add_row(cs_seqs, 
+                     patient = patients[i], 
+                     cs_name = cs_ref$id[j],
+                     start = cs_ref$start[j],
+                     end = cs_ref$end[j],
+                     pre_seq = str_sub(pr_str, cs_ref$start[j], cs_ref$end[j]),
+                     post_seq = str_sub(po_str, cs_ref$start[j], cs_ref$end[j]),
+                     sf_seq = str_sub(sf_str, cs_ref$start[j], cs_ref$end[j]),
+                     rwt = cs_rev_rule(pre_seq, post_seq, sf_seq))
+   }
+}
+
+saveRDS(cs_seqs, "cs_seqs.RDS")
+```
+
+<!-- # read CS-seqs -->
+
+<!-- ```{r read_csseqs} -->
+<!-- cs_seqs <- readRDS("cs_seqs.RDS") -->
+<!-- ``` -->
+
+## Determine mutated CS codons based on main gag muts file
+
+```{r mutated_cs_codons}
+cs_locs <- c(cs_ref$start[1]:cs_ref$end[1], 
+             cs_ref$start[2]:cs_ref$end[2], 
+             cs_ref$start[3]:cs_ref$end[3], 
+             cs_ref$start[4]:cs_ref$end[4], 
+             cs_ref$start[5]:cs_ref$end[5])
+
+ cs_seqs <- muts_file[muts_file$codon %in% cs_locs,]  %>% # get the right codons
+    mutate(rwt = cs_rev_rule(pre, post, std))
+cs_muts <- cs_seqs %>% 
+   filter(pre != "X" & pre != "-" &   # filter for bad characters
+          post != "X" & post != "-" & 
+          std != "X" & std != "-") %>% 
+   filter(pre != std | post != std) %>% #only cases where non std AA's 
+   mutate(cs_name = case_when(
+      codon >= cs_ref$start[1] & codon <=cs_ref$end[1] ~ cs_ref$id[1],
+      codon >= cs_ref$start[2] & codon <=cs_ref$end[2] ~ cs_ref$id[2],
+      codon >= cs_ref$start[3] & codon <=cs_ref$end[3] ~ cs_ref$id[3],
+      codon >= cs_ref$start[4] & codon <=cs_ref$end[4] ~ cs_ref$id[4],
+      codon >= cs_ref$start[5] & codon <=cs_ref$end[5] ~ cs_ref$id[5]
+   )) 
+
+## Divide Muts into pre and post retaining other information
+
+cs_muts_pp <- tibble(patient = character(),
+                  pre_post = character(),
+                  total_muts = numeric())
+cs_muts_site <- tibble(cs = character(),
+                       pre_post = character(),
+                       total_muts = numeric())
+
+# set up loop
+# use patients vector from block above as counter
+for (i in seq(from = 1, to = (length(patients)))) {
+   muts <- unlist(cs_muts %>% 
+      filter(patient == patients[i] & (pre %nin% c("X", "-")) & pre != std) %>% 
+      summarize(num = n()))
+   cs_muts_pp <- add_row(cs_muts_pp, patient = patients[i], pre_post = "pre",
+                       total_muts = muts)
+}
+for (j in seq(from = 1, to = 5)) {  
+   muts <- unlist(cs_muts %>% 
+      filter(cs_name == cs_ref$id[j] & (pre %nin% c("X", "-")) & pre != std) %>% 
+      summarize(num = n()))
+   cs_muts_site <- add_row(cs_muts_site, cs = cs_ref$id[j], pre_post = "pre",
+                       total_muts = muts)
+   }
+
+# Do the same for post 
+# same structure as above
+
+for (i in seq(from = 1, to = (length(patients)))) {
+   muts <- unlist(cs_muts %>% 
+      filter(patient == patients[i] & (post %nin% c("X", "-")) & post != std) %>% 
+      summarize(num = n()))
+   cs_muts_pp <- add_row(cs_muts_pp, patient = patients[i], pre_post = "post",
+                       total_muts = muts)
+}
+for (j in seq(from = 1, to = (nrow(cs_ref)))) {  
+   muts <- unlist(cs_muts %>% 
+      filter(cs_name == cs_ref$id[j] & (pre %nin% c("X", "-")) & post != std) %>% 
+      summarize(num = n()))
+   cs_muts_site <- add_row(cs_muts_site, cs = cs_ref$id[j], pre_post = "post",
+                       total_muts = muts)
+}
+
+   
+saveRDS(cs_muts_pp, "cs_muts_pp.rds")
+saveRDS(cs_muts_site, "cs_muts_site.rds")
+```
+
+
+## Do Summary stats on CS mutated codons
+
+```{r cs_muts_summ_state}
+
+
+## How many mutations? how many per patient? how many per site? How many accountable by "X"
+
+paste("How many?", length(unique(cs_muts_pp$patient)))
+
+#How many per patient?
+kable(cs_muts_pp, booktabs = TRUE,  longtable = TRUE, 
+      caption = "Mutations per patient") %>% 
+   kable_styling(latex_options = c("repeat_header"))
+ 
+# How many per site
+
+kable(cs_muts_site, caption = "Mutations per cleavage site")
+
+# Who are the reverters?
+
+cs_muts %>% 
+   filter(rwt == TRUE) %>% 
+   select(-rwt) %>% 
+   kable(caption = "Mutations that Return to Wild Type" )
+
+# Mean Number of Muts per Patient
+
+cs_muts %>% 
+   group_by(patient) %>% 
+   kable( booktabs = TRUE,  longtable = TRUE, 
+      caption = "Mean Mutations per patient") %>% 
+   kable_styling(latex_options = c("repeat_header")) 
+
+# Mean number of mutations per patient:
+
+# PreSTI
+
+mean(cs_muts_pp$total_muts[cs_muts_pp$pre_post == "pre"])
+  
+# Post STI
+
+mean(cs_muts_pp$total_muts[cs_muts_pp$pre_post == "post"])
+
+# All
+
+mean(cs_muts_pp$total_muts)
+
+# Pre vs Post t-test
+cs_diff_pp <- cs_muts_pp %>% 
+   spread(key = pre_post, value = total_muts)
+t.test(cs_muts_pp$total_muts ~ cs_muts_pp$pre_post, 
+       paired = TRUE, alternative = "two.sided")
+```
+
+## Looking at specific CS's
+
+```{r specific_cs}
+site_muts_func <- function(n) {   ## n = index number of site
+   x <- cs_muts %>% 
+     filter(cs_name == cs_ref$id[n]) %>% 
+     select(-cs_name) 
+   return(x)
+}
+
+print_csite_muts <- function(site, id){
+   kable(site, booktabs = TRUE, longtable = TRUE, 
+      caption = paste(id, "Mutations by Patient and Codon"),
+      col.names = c("Patient", "Codon", "Pre-STI", "Post-STI", 
+                    "SF-2", "to Wild Type"))  
+}
+
+maca_muts <- site_muts_func(1) 
+cap2_muts <- site_muts_func(2)
+p2nc_muts <- site_muts_func(3)
+ncp1_muts <- site_muts_func(4)
+p1p6_muts <- site_muts_func(5)
+
+print_csite_muts(maca_muts, "MA/CA")
+print_csite_muts(cap2_muts, "CA/p2")
+print_csite_muts(p2nc_muts, "p2/NC")
+print_csite_muts(ncp1_muts, "NC/p1")
+print_csite_muts(p1p6_muts, "p1/p6")
+
+## WWrite the csite files to csv format for ease of inputting to document
+write_csv(maca_muts, "maca.csv")
+write_csv(cap2_muts, "cap2.csv")
+write_csv(p2nc_muts, "p2nc.csv")
+write_csv(ncp1_muts, "ncp1.csv")
+write_csv(p1p6_muts, "p1p6.csv")
+```
+
+
+### Graph of averages per patient
+
+```{r gr_averages, fig.height= 7, fig.width= 5, message = FALSE, warning = FALSE}
+
+gg_cs_avgs <- cs_muts_pp %>% 
+   mutate(patient = factor(as.integer(patient)),
+          pre_post = factor(pre_post, levels = c("pre", "post"))) %>% 
+   arrange(patient) %>% 
+   ggbarplot(x = "patient", y = "total_muts",
+             group = "pre_post",
+             color = "pre_post", fill = "pre_post",
+             palette = "uchicago",
+             title = "Number of Mutations per Patient",
+             subtitle = "for Cleavage Sites with Overall Mean pre- and post-STI",
+             xlab = "Patient", 
+             ylab = "Mutations per Patient",
+             legend = "bottom",
+             position = position_dodge(0.9),
+             ggtheme = theme_gray())
+# add mean line
+gg_cs_avgs <- gg_cs_avgs +
+   ylim(0, 5) +
+   geom_hline(yintercept = mean(cs_muts_pp$total_muts[cs_muts_pp$pre_post == "pre"]), 
+              colour = new_uchic[1]) +
+   geom_hline(yintercept = mean(cs_muts_pp$total_muts[cs_muts_pp$pre_post == "post"]), 
+              colour = new_uchic[2]) +
+   annotate("text", 10, 4.5, size = 5,
+           label = paste("pre-STI mean =", 
+               round(mean(cs_muts_pp$total_muts[cs_muts_pp$pre_post == "pre"]), 3)), 
+           color = new_uchic[1]) +
+   annotate("text", 20, 4.5, size = 5,
+           label = paste("post-STI mean =",
+               round(mean(cs_muts_pp$total_muts[cs_muts_pp$pre_post == "post"]), 3)), 
+           color = new_uchic[2])
+gg_cs_avgs
+```
+
+### Graph of averages per CS
+
+```{r gr_cs_site_avg, fig.height= 7, fig.width= 5, message = FALSE, warning = FALSE}
+
+gg_cs_site_avgs <- cs_muts_site %>% 
+   mutate(cs = factor(cs, levels = c("MA/CA", "CA/p2", "p2/NC", "NC/p1", "p1/p6")),
+          pre_post = factor(pre_post, levels = c("pre", "post"))) %>%
+   arrange(cs) %>% 
+   ggbarplot(x = "cs", y = "total_muts",
+             color = "pre_post", fill = "pre_post",
+             palette = "uchicago",
+             title = "Number of Mutations per Cleavage Sites",
+             subtitle = "with Overall Mean pre- and post-STI",
+             xlab = "Cleavage Site", 
+             ylab = "Mutations per Site",
+             label = TRUE,
+             lab.pos = "out",
+             lab.col = "pre_post",
+             legend = "bottom",
+             position = position_dodge(0.9),
+             ggtheme = theme_gray())
+# add mean line
+gg_cs_site_avgs <- gg_cs_site_avgs +
+   ylim(0, 35) +
+   geom_hline(yintercept = mean(cs_muts_site$total_muts[cs_muts_site$pre_post == "pre"]), 
+              colour = new_uchic[1]) +
+   geom_hline(yintercept = mean(cs_muts_site$total_muts[cs_muts_site$pre_post == "post"]), 
+              colour = new_uchic[2]) +
+   annotate("text", 2, 33, size = 5,
+           label = paste("pre-STI mean =", 
+               round(mean(cs_muts_site$total_muts[cs_muts_site$pre_post == "pre"]), 3)), 
+           color = new_uchic[1]) +
+   annotate("text", 4, 33, size = 5,
+           label = paste("post-STI mean =",
+               round(mean(cs_muts_site$total_muts[cs_muts_site$pre_post == "post"]), 3)), 
+           color = new_uchic[2])
+gg_cs_site_avgs
+```
+
+## Stats on p2/NC
+
+```{r p2NC}
+
+Desc(as.factor(p2nc_muts$codon))
+Desc(as.factor(p2nc_muts$patient))
+   
+
+```
+
+

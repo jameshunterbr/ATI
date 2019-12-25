@@ -1,0 +1,47 @@
+---
+title: "Cleavage_Sites_SF2"
+author: "James R. Hunter"
+date: "1/9/2019"
+output: pdf_document
+---
+
+````{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Sequences
+
+```{r pre_STI, message = FALSE, warning = FALSE}
+librarian::shelf(stringr, tibble, Biostrings, seqinr, msa, dplyr)
+sf2 <- unlist(read.fasta("sf2_gag_aa.fasta"))
+```
+
+## MA/CA
+```{r maca}
+sf2[130:140]
+```
+
+## CA/p2
+
+```{r cap2}
+sf2[360:370]
+
+```
+
+## p2/NC
+
+```{r p2nc}
+sf2[370:382]
+```
+
+## NC/p1
+
+```{r ncp1}
+sf2[430:440]
+```
+
+## p1/p6
+
+```{r p1p6}
+sf2[443:453]
+```

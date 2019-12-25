@@ -1,0 +1,111 @@
+---
+title: "Sequences of Cleavage Site Region in gag v3"
+output:
+  pdf_document: default
+  html_notebook: default
+date: "11/08/18"
+version: 3
+---
+
+## Sequences
+
+```{r pre_STI, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+librarian::shelf(stringr, tibble, Biostrings, seqinr, msa, dplyr)
+allnuc <- readDNAStringSet("pre_nuc_mod.fasta")
+allnuc <- c(allnuc, readDNAStringSet("post_nuc_mod2.fasta"))
+allnuc
+```
+
+## Translate All Sequences Using All 3 Forward Reading Frames
+
+```{r tr_rframe}
+rframe_results <- tibble(seqs = character(length(allnuc)),
+                         trans = character(length(allnuc)),
+                         minstops = integer(length(allnuc)))
+for (i in 1:length(allnuc)) {
+   rframe_results$seqs[i] <- paste(names(allnuc[i]))
+   tmp0 <-  c2s(translate(s2c(as.character(allnuc[[i]])), frame = 0))
+   tmp1 <-  c2s(translate(s2c(as.character(allnuc[[i]])), frame = 1))
+   tmp2 <-  c2s(translate(s2c(as.character(allnuc[[i]])), frame = 2))
+   stops0 <- str_count(tmp0, "\\*")
+   stops1 <- str_count(tmp1, "\\*")
+   stops2 <- str_count(tmp2, "\\*")
+   rframe_results$minstops[i] <- min(stops0, stops1, stops2)
+   rframe_results$trans[i] <- case_when(stops0 == rframe_results$minstops[i] ~ tmp0,
+                                        stops1 == rframe_results$minstops[i] ~ tmp1,
+                                        stops2 == rframe_results$minstops[i] ~ tmp2)
+}
+rframe_results %>% 
+   select(seqs, minstops) %>% 
+   filter(minstops > 0)
+## put sequence counter into rframe_results to allow the sequences to be inserted in
+## dataframe in the right order
+
+rframe_results$order <- c(seq(from = 1, to = 65, by = 2), seq(from = 2, to = 66, by = 2))
+rframe_results <- rframe_results %>% 
+   arrange(order)
+  
+```
+
+Only sequences "3A" and "35A" showed any stop codons.
+
+## Organize New AAStringSet of Amino Acid Sequences
+
+```{r aa_set}
+aa_all <- AAStringSet(rframe_results$trans)
+names(aa_all) <- rframe_results$seqs
+aa_all
+# save rds file for future calcs without having to rebuild StringSet
+saveRDS(aa_all, "gag_aa_all.rds")
+```
+
+
+
+## Add in SF2 Reference Sequence
+
+```{r sf2_gag}
+sf2 <- readAAStringSet("sf2_gag_aa.fasta")
+
+```
+
+## Sequences by Patient
+
+Measuring Pre-STI, Post-STI and SF2
+
+### process sequencing function
+
+```{r func_seq_process}
+process_patient <- function(seq) {
+   librarian::shelf(stringr, Biostrings, msa)
+   print(paste("Patient", names(aa_all[seq])))
+   pre <- aa_all[seq]
+   post <- aa_all[seq + 1]
+   seq <- c(pre, post, sf2)
+   align <- msa(seq, method = "ClustalW")
+   print("matrix/capsid")
+   matcap_patt <- "SQNYPIV"
+   print(str_locate_all(align, matcap_patt))
+   print("capsid/sp1")
+   capsp1_patt <- "ARVLAEA"
+   print(str_locate_all(align, capsp1_patt))
+   print("sp1/nucleocapsid")
+   sp1nuccap_patt <- "MQR"
+   print(str_locate_all(align, sp1nuccap_patt))
+   print("nucleocapsid/sp2")
+   nuccapsp2_patt <- "RQANFLG"
+   print(str_locate_all(align, nuccapsp2_patt))
+   print("sp2/p6")
+   sp2p6_patt <- "GNFLQS"
+   print(str_locate_all(align, sp2p6_patt))
+   print(align, show = "complete")
+}
+```
+
+### Execute Function for All Patients 
+
+```{r exec_loop}
+for (i in seq(from = 1, to = (length(aa_all) - 1), by = 2)) process_patient(i)
+
+```
+

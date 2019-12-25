@@ -1,0 +1,116 @@
+---
+title: "Reverse Transcriptase PBMC graphs 2"
+author: "James Hunter"
+date: "July 10, 2014"
+output: pdf_document
+---
+
+Using the ISA 2013 Update of HIV Mutations (Johnson, Calvez, et al., Update of the Drug Resistance Mutations in HIV-1: March 2013, Top Antivir Med. 2013;21(1):6-14), the following are the plots of the evolution of the Reverse Transcriptase mutations in PBMC.Not all the codons on the list correspond to the data collected originally. 
+
+These plots use all 38 cases, including 3 classed by Domingos as non-resistant.
+
+The codons recognized by the updated list for which we have data are the following:
+
+### Resistant to NRTI's 
+41, 65, 67, 69, 70, 75, 184, 210, 215, 219
+
+### Resistant to NNRTI's (but not in previous group)
+103, 106, 108, 179, 181, 188, 190
+
+Load reverse transcriptase database
+-----------------------------------
+```{r load database}
+load("trpbmut.RData")
+nrtimuts <- c("tr41", "tr65", "tr67", "tr69", "tr70", "tr184", "tr210", 
+            "tr215", "tr219")
+nnrtimuts <- c("tr103", "tr108", "tr179", "tr181", "tr188", "tr190")
+
+#Set up data frame with mutation number and weeks to 0 patients
+wk0 <- data.frame(Mutation = NA, Weeks = NA)
+```
+
+Resistant to NRTI's
+-------------------
+
+```{r draw NRTI}
+require(ggplot2)
+# loop for tr NRTI mutations
+
+for (i in 1:length(nrtimuts)){
+# Calculate regression equation
+   fit <- lm(value ~ wknum, data = trpbmut[trpbmut$mutation == nrtimuts[i],])
+   eqn <- as.character(as.expression(
+      substitute(italic(y) == a + b * italic(x) * "," ~~ italic(r)^2 ~ "=" ~ r2,
+        list(a = format(coef(fit)[1], digits=3),
+             b = format(coef(fit)[2], digits=3),
+             r2 = format(summary(fit)$r.squared, digits=3)
+))))
+
+# Draw graph
+   title <- paste("Evolution of RT PBMC Mutation at ", nrtimuts[i])
+   g1 <- ggplot(trpbmut[trpbmut$mutation == nrtimuts[i],], aes(x = wknum, y = value)) 
+   g1 <- g1 + ggtitle(title)
+   g1 <- g1 + xlab("Week") + ylab("Patients with Mutation")
+   g1 <- g1 + geom_point()
+   g1 <- g1 + geom_smooth(method = "lm")
+   g1 <- g1 + scale_y_continuous(breaks = seq(from = 0, to = 40, by = 5))
+   g1 <- g1 + scale_x_continuous(breaks = c(4, 8, 12)) 
+   g1 <- g1 + annotate("text", x = 3, y = 1, label = eqn, parse = TRUE)
+   print(g1)
+
+# Put week to 0 patients calculation in wk0 data frame
+   intercept <- fit$coef[1]
+   slope <- fit$coef[2]
+# algebraic solution
+   wks <- (-intercept/slope)
+   wk0 <- rbind(wk0, data.frame(Mutation = as.character(nrtimuts[i]), Weeks = wks))
+}
+```
+
+Resistant to NNRTI's
+-------------------
+
+```{r draw NNRTI}
+require(ggplot2)
+# loop for tr NRTI mutations
+
+for (i in 1:length(nnrtimuts)){
+# Calculate regression equation
+   fit <- lm(value ~ wknum, data = trpbmut[trpbmut$mutation == nnrtimuts[i],])
+   eqn <- as.character(as.expression(
+      substitute(italic(y) == a + b * italic(x) * "," ~~ italic(r)^2 ~ "=" ~ r2,
+        list(a = format(coef(fit)[1], digits=3),
+             b = format(coef(fit)[2], digits=3),
+             r2 = format(summary(fit)$r.squared, digits=3)
+))))
+
+# Draw graph
+   title <- paste("Evolution of RT PBMC Mutation at ", nnrtimuts[i])
+   g1 <- ggplot(trpbmut[trpbmut$mutation == nnrtimuts[i],], aes(x = wknum, y = value)) 
+   g1 <- g1 + ggtitle(title)
+   g1 <- g1 + xlab("Week") + ylab("Patients with Mutation")
+   g1 <- g1 + geom_point()
+   g1 <- g1 + geom_smooth(method = "lm")
+   g1 <- g1 + scale_y_continuous(breaks = seq(from = 0, to = 40, by = 5))
+   g1 <- g1 + scale_x_continuous(breaks = c(4, 8, 12)) 
+   g1 <- g1 + annotate("text", x = 3, y = 1, label = eqn, parse = TRUE)
+   print(g1)
+# Put week to 0 patients calculation in wk0 data frame
+   intercept <- fit$coef[1]
+   slope <- fit$coef[2]
+# algebraic solution
+   wks <- (-intercept/slope)
+   wk0 <- rbind(wk0, data.frame(Mutation = as.character(nnrtimuts[i]), Weeks = wks))
+}
+```
+
+Table of Weeks to 0 Patients with Mutation
+------------------------------------------
+```{r table}
+wk0 <- wk0[-1,] # remove the first row with the NA values
+wk0$Weeks <- round(wk0$Weeks, digits = 3)
+rownames(wk0) <- NULL
+print(wk0)
+```
+
+Clearly, the negative values in the above table (tr179, tr188) reflect cases in which the number of patients with mutation was rising rather than falling. This indicates that these mutations do not follow the standard pattern for mutations during the 12 weeks of the STI. They should be eliminated from our final considerations.

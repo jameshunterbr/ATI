@@ -1,0 +1,328 @@
+---
+title: "gag vs. Protease Minor Mutations"
+author: "James R. Hunter"
+date: "5 February 2019"
+output: pdf_document
+
+---
+
+revision in how the L10 and other codons counted; separating pre and post
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Sequences
+
+This chunk loads the following material into memory:
+
+1. necessary packages for analysis
+2. the list of hits from the survey of gag sequences
+3. the aligned sequences for the patients who have the sequences of interest 
+4. the summary of the correspondence between mutations in gag and those resistant to PR
+
+```{r load_items, message = FALSE, warning = FALSE}
+librarian::shelf(tidyverse, kableExtra, helfRlein, knitr, ggpubr)
+options(scipen = 9)
+```
+
+## Put in gag regions to hits
+
+```{r gag_regs_hits}
+gag_str <- tibble(region = c("matrix", "capsid", "p2", "nucleocapsid", "p1", "p6"),
+                  start = as.integer(c(1, 135, 366, 381, 435, 451)), 
+                  end = as.integer(c(134, 365, 380, 434, 450, 600)))
+hits <- readRDS("gag_hits_rule1a.rds")
+hits <- hits %>%
+   mutate(region = case_when(
+         codon <= gag_str$end[1] ~ gag_str$region[1],
+         codon >= gag_str$start[2] & codon <= gag_str$end[2] ~ gag_str$region[2], 
+         codon >= gag_str$start[3] & codon <= gag_str$end[3] ~ gag_str$region[3], 
+         codon >= gag_str$start[4] & codon <= gag_str$end[4] ~ gag_str$region[4], 
+         codon >= gag_str$start[5] & codon <= gag_str$end[5] ~ gag_str$region[5], 
+         codon >= gag_str$start[6] ~ gag_str$region[6]))
+(reg_table <- table(hits$region))
+```
+
+
+## Combine data frames
+
+Focus on the protease (pol) region for those sequences with hits in the gag gene. Incorporate these data into the hits data frame.
+
+```{r create_gag_data, eval = FALSE}
+hit_pacs <- unique(hits$patient)
+hit_prot_muts <- prot_pla_muts %>% 
+    filter(pac %in% hit_pacs)
+# Initialize data frame for the protease mutations (string form)
+prot_muts_str <- tibble(seq_name = hit_prot_muts$seq_names,
+                        pac = hit_prot_muts$pac,
+                        muts = "", 
+                        mut_count = 0L)
+# loop to make strings out of string vectors of PR mutations for each sequence
+for (i in 1:nrow(hit_prot_muts)) {
+    tmp <- unname(as.character(hit_prot_muts[i,1:18])) # vars 19, 20 not used
+    ifelse(all(is.na(tmp)), tmp <- "No PR mutations", tmp <- tmp[!is.na(tmp)])
+    ifelse(tmp != "No PR mutations", prot_muts_str$mut_count[i] <- length(tmp),
+           prot_muts_str$mut_count[i] <- 0)
+    prot_muts_str$muts[i] <- str_c(tmp, collapse = " ")
+}
+
+# final combination of tables
+gag_data <- prot_muts_str %>% 
+    left_join(hits, by = c("pac" = "patient"))
+
+#replace pre's and post's with blanks in appropriate row
+for (i in 1:nrow(gag_data)) {
+    ifelse(str_sub(gag_data$seq_name[i], -1, -1) == "A", gag_data$post[i] <- "", 
+           gag_data$pre[i] <- "")
+}
+saveRDS(gag_data, "gag_data.rds")  
+```
+
+## Redo muts string of mutations with minor mutations only--those not in major list
+
+```{r ias_major}
+ias_major <- c("D30N", "V32I", "M46I", "M46L", "I47V", "I47A", "G48V", 
+               "I50L", "I50V", "I54M", "I54L", "Q58E", "T74P", "L76V",
+               "V82A", "V82F", "V82T", "V82S", "V82L", "N83D", "I84V", 
+               "N88S", "L90M")
+```
+
+```{r redo_gag_data_minor}
+
+prot_pla_muts <- readRDS("prot_plasma_muts.rds")
+
+
+hit_pacs <- unique(hits$patient)
+
+min_prot_muts <- prot_pla_muts %>% 
+   filter(pac %in% hit_pacs) %>% 
+   mutate(seq_names = ifelse(str_sub(seq_names, -1, -1) == "A", 
+                             str_replace(seq_names, "A", "pre"),
+                             str_replace(seq_names, str_sub(seq_names, -1, -1),
+                                         "post"))) %>% 
+   select(c(which(colnames(prot_pla_muts) %nin% ias_major), 19, 20))
+   
+# Initialize data frame for the protease mutations (string form)
+min_prot_muts_str <- tibble(seq_name = min_prot_muts$seq_names,
+                        pac = min_prot_muts$pac,
+                        muts = "", 
+                        mut_count = 0L)
+# loop to make strings out of string vectors of PR mutations for each sequence
+for (i in 1:nrow(min_prot_muts)) {
+    tmp <- unname(as.character(min_prot_muts[i,1:(ncol(min_prot_muts) - 2)])) # vars seq_name, pac not used
+    ifelse(all(is.na(tmp)), tmp <- "No major PR mutations", tmp <- tmp[!is.na(tmp)])
+    ifelse(tmp != "No major PR mutations", min_prot_muts_str$mut_count[i] <- length(tmp),
+           min_prot_muts_str$mut_count[i] <- 0)
+    min_prot_muts_str$muts[i] <- str_c(tmp, collapse = " ")
+}
+
+```
+
+### final combination of tables for minor PI muts
+```{r comb_majors}
+gag_data_minor <- min_prot_muts_str %>% 
+    left_join(hits, by = c("pac" = "patient")) %>% 
+    mutate(pre_post = ifelse(str_sub(seq_name, -3, -1) == "pre", 
+                             "pre",
+                             "post")) 
+
+#replace pre's and post's with blanks in appropriate row
+for (i in 1:nrow(gag_data_minor)) {
+    ifelse(str_sub(gag_data_minor$seq_name[i], -3, -1) == "pre", gag_data_minor$post[i] <- "", 
+           gag_data_minor$pre[i] <- "")
+}
+   
+saveRDS(gag_data_minor, "gag_data_minor.rds")  
+```
+
+
+
+
+## Print report of gag data with MINOR protease mutations only
+
+
+```{r report}
+gag_data_minor <- readRDS("gag_data_minor.rds")
+gag_data_minor %>% 
+    select(codon, seq_name, pre, post, std, region, mut_count, muts) %>%
+    arrange(codon) %>% 
+    kable(., booktabs = TRUE, col.names = c("Codon", "Sequence", 
+                                            "pre_STI", 
+                                            "post_STI", "SF-2 standard",
+                                            "gag Region", 
+                                            "# mutations", "mutations")) %>%
+    kable_styling(latex_options = "scale_down") %>% 
+    add_header_above(c(" " = 2, "gag Mutations" = 4, 
+                       "IAS Minor Protease Mutations" = 2), italic = TRUE)
+gag_data_minor %>% 
+    select(codon, seq_name, pre, post, std, region, mut_count, muts) %>%
+    arrange(codon) %>% 
+    write_csv("gag_minor_data.csv")
+```
+
+
+## Get totals of all protease mutations in gag_minor_data 
+
+```{r tot_gag_data_minor_2}
+
+muts_vecs <- tibble(seq = gag_data_minor$seq_name,
+                    vecs = list(character()))
+
+for (i in 1:nrow(muts_vecs)){
+    m <- gag_data_minor$muts[i]
+    muts_vecs$vecs[[i]] <- as.character(str_split(m, " ", simplify = TRUE))
+}
+# control for "no PR mutations"; change to ""
+muts_vecs$vecs[[which(muts_vecs$seq == "24post")]] <- ""
+
+# put pre-post in muts_vecs
+
+muts_vecs$pre_post <- ifelse(str_sub(muts_vecs$seq, -3, -1) == "pre", "pre", "post")
+mut_vecs_post <- muts_vecs %>% 
+   filter(pre_post == "post")
+mut_vecs_pre <- muts_vecs %>% 
+   filter(pre_post == "pre")
+pre_muts_minor <- character()
+post_muts_minor <- character()
+all_muts_minor <- character()
+for (i in 1:length(muts_vecs$vecs)) {
+    all_muts_minor <- c(all_muts_minor, muts_vecs$vecs[[i]])
+}
+for (i in 1:length(mut_vecs_post$vecs)) {
+    post_muts_minor <- c(post_muts_minor, mut_vecs_post$vecs[[i]])
+}
+for (i in 1:length(mut_vecs_pre$vecs)) {
+    pre_muts_minor <- c(pre_muts_minor, mut_vecs_pre$vecs[[i]])
+}
+# Reduce to unique vector of mutations
+all_uniq_muts_minor <- unique(all_muts_minor) 
+all_uniq_muts_minor <- all_uniq_muts_minor[-which(all_uniq_muts_minor  == "")]
+post_uniq_muts_minor <- unique(post_muts_minor)
+post_uniq_muts_minor <- post_uniq_muts_minor[-which(post_uniq_muts_minor  == "")]
+pre_uniq_muts_minor <- unique(pre_muts_minor)
+
+# Create final count of mutations
+
+post_muts_minor_count <- tibble(mutation = character(),
+                         codon = character(),
+                         total = integer())
+
+for(i in 1:length(post_uniq_muts_minor)) {
+    post_muts_minor_count <- add_row(post_muts_minor_count, 
+                              mutation = post_uniq_muts_minor[i],
+                              codon = str_sub(post_uniq_muts_minor[i], 2, 3),
+                              total = sum(str_count(post_muts_minor, post_uniq_muts_minor[i])))
+}
+# report by mutation
+report1 <- post_muts_minor_count %>% 
+    filter(mutation != "") %>% 
+    select(-codon) %>% 
+    arrange(desc(total)) %>% 
+    write_csv("post_muts_minor_count_muts.csv")
+
+kable(report1, booktabs = TRUE, caption = "Number of Sequences with Mutation -- post STI")
+
+print(paste("Total of post mutations =", sum(post_muts_minor_count$total)))
+
+# report by codon
+report2 <- post_muts_minor_count %>% 
+    filter(mutation != "") %>% 
+    group_by(codon) %>% 
+    summarise(Total = sum(total)) %>% 
+    arrange(desc(Total)) %>% 
+    write_csv("post_muts_minor_count_codons.csv")
+
+kable(report2, booktabs = TRUE, caption = "Number of Sequences with Codon Mutated -- post STI")
+```
+
+
+
+## Look at L10
+
+```{r L10}
+L10seqs <- gag_data_minor %>% 
+    filter(str_detect(muts, "L10"))
+
+totL10pre <- unname(unlist(L10seqs %>% 
+   filter(pre_post == "pre") %>% 
+   summarize(tot = sum(str_detect(muts, "L10")))))
+
+totL10post <- unname(unlist(L10seqs %>% 
+   filter(pre_post == "post") %>% 
+   summarize(tot = sum(str_detect(muts, "L10")))))
+print(paste("total L10s pre =", totL10pre, "tot post =", totL10post ))
+
+l10v <- L10seqs %>% summarize(l10v  = sum(str_detect(muts, "L10V")))
+l10i <- L10seqs %>% summarize(l10v  = sum(str_detect(muts, "L10I")))
+# L10I
+L10seqs %>% 
+    filter(str_detect(muts, "L10I")) %>% 
+    mutate(pre_post = factor(pre_post, levels = c("pre", "post"))) %>% 
+    group_by(region, pre_post) %>% 
+    summarize(tot = n())
+# L10V
+L10seqs %>% 
+    filter(str_detect(muts, "L10V")) %>% 
+    mutate(pre_post = factor(pre_post, levels = c("pre", "post"))) %>% 
+    group_by(region, pre_post) %>% 
+    summarize(tot = n())
+
+
+```
+
+
+## Revert by gag Data Sequences
+
+```{r}
+gag_diffs <- readRDS("gag_data.rds") %>% 
+    arrange(codon, pac) %>% 
+    mutate(pre_post = ifelse(str_sub(seq_name, -1, -1) == "A", "pre", "post"))  
+    
+    
+result = tibble(pac = character(),
+                codon = integer(),
+                diff = integer())
+
+for (i in seq(from = 1, to = 50, by = 2)) {
+    result <- add_row(result, pac = gag_diffs$pac[i][1],
+                      codon = gag_diffs$codon[i][1],
+                      diff = gag_diffs$mut_count[i][1] -
+                             gag_diffs$mut_count[i + 1][1])
+}
+
+# Average muts pre-STI
+
+(avg_pre <- mean(gag_diffs$mut_count[gag_diffs$pre_post == "pre"]))
+
+# Average muts post_STI
+
+(avg_post <- mean(gag_diffs$mut_count[gag_diffs$pre_post == "post"]))
+
+# Average lost mutations
+
+(avg = mean(result$diff))
+
+librarian::shelf(DescTools)
+options(scipen = 5)
+Desc(result$diff)
+```
+
+## L63P
+
+```{r L63}
+L63seqs <- gag_data_minor %>% 
+    filter(str_detect(muts, "63"))  
+    
+L63seqs
+L63seqs %>% 
+    group_by(region) %>% 
+    summarize(tot = n())
+## did it persist or was it dropped
+l63_pre_codons <- gag_data_minor %>% 
+   filter(pre_post == "pre" & str_detect(muts, "63")) %>% 
+   select(pac, codon)
+gag_data_minor %>% 
+   filter(codon %in% l63_pre_codons$codon & pac %in% l63_pre_codons$pac &
+             pre_post == "post")
+```

@@ -1,0 +1,100 @@
+---
+title: "TR Plasma Mutations"
+author: "James Hunter"
+date: "March 2, 2016"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Track RT Plasma Mutations by Week
+---------------------------------------
+```{r}
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(readr))
+suppressPackageStartupMessages(library(ggplot2))
+# read in data from csv file
+trplas <- read_csv("trplasma.csv")
+# Get all the trplas mutations
+trplasmutall <- colSums(trplas[-1])
+wkdesigpl <- c("bl", "_12")
+wkdesigpln <- length(wkdesigpl)
+trmutnames <- c("tr41", "tr44", "tr65", "tr67", "tr69", "tr70", "tr74", "tr75",
+              "tr103", "tr106", "tr108", "tr118", "tr179", "tr181", "tr184",
+              "tr188", "tr190", "tr208", "tr210", "tr211", "tr214", "tr215",
+              "tr219")
+trmutnum <- length(trmutnames)
+```
+
+Create data frame repeating sequence of mutations and weeks
+-----------------------------------------------------------
+
+```{r dataframe}
+
+trplmut <- data.frame(week = rep(wkdesigpl, each = trmutnum),
+                      mutation = rep(trmutnames, times = wkdesigpln),
+                      value = trplasmutall,
+                      stringsAsFactors = FALSE)
+# set up week factor
+trplmut$week <- factor(trplmut$week, levels = wkdesigpl, 
+                       labels = c("baseline", "12"))
+trplmut$wknum <- rep(c(0, 12), each = trmutnum)
+#set up mutation factor
+trplmut$mutation <- factor(trplmut$mutation)
+save(trplmut, file = "trplmut.RData")
+```
+
+Load protease database
+
+```{r}
+load("trpbmuts.RData")
+```
+
+Load ggplot2 library and plot progress -- all cases
+------------------------------------------------------
+
+The dots represent the data points themselves, the line a regression of the number of patients against time and the grey band, confidence interval. Inclusion in the confidence interval indicates that the regression line describes the data.
+
+```{r regressfunct}
+regressgraph <- function(mut){
+   fit <- lm(value ~ wknum, data = trplmut[trplmut$mutation == mut,])
+   eqn <- as.character(as.expression(
+      substitute(italic(y) == a + b * italic(x) ,
+                 list(a = format(coef(fit)[1], digits=3),
+                      b = format(coef(fit)[2], digits=3)
+                 ))))
+   # Draw graph
+   require(ggplot2)
+   title <- paste0("Evolution of RT Plasma Mutation at ", mut)
+   g1 <- ggplot(trplmut[trplmut$mutation == mut,], aes(x = wknum, y = value)) 
+   g1 <- g1 + ggtitle(title)
+   g1 <- g1 + xlab("Week") + ylab("Patients with Mutation")
+   g1 <- g1 + geom_point()
+   g1 <- g1 + geom_smooth(method = "lm")
+   g1 <- g1 + scale_y_continuous(breaks = seq(from = 0, to = 40, by = 5))
+   g1 <- g1 + scale_x_continuous(breaks = c(4, 8, 12)) 
+   g1 <- g1 + annotate("text", x = 3, y = 1, label = eqn, parse = TRUE)
+   print(g1)
+# Determine number of weeks to achieve 0 patients with mutation
+# parameters
+intercept <- fit$coef[1]
+slope <- fit$coef[2]
+# algebraic solution
+wks <- (-intercept/slope)
+print(fit)
+print(paste(prettyNum(wks, digits = 4), "weeks to 0 patients with mutation"))
+}
+```
+
+## Print Regression Graphs
+
+```{r printgraph}
+regressgraph("tr41")
+regressgraph("tr215")
+regressgraph("tr190")
+```
+

@@ -1,0 +1,123 @@
+---
+title: "Calculations for the PLOS version text"
+date: "09/09/18"
+output: html_notebook
+---
+
+## Load Packages 
+
+```{r loadpack, message=FALSE}
+librarian::shelf(tidyverse, scales, DescTools, ggpubr, gmodels, sigr,
+                 knitr, kableExtra, broom, haven, readxl, RColorBrewer)
+```
+
+## Load `cell_act`
+
+```{r load_data}
+cell_act <- readRDS("cell_act_final.rds")
+Desc(cell_act$cd8_cd38_hladr_pct, plotit = TRUE)
+Desc(cd8_cd38_hladr_pct ~ group, data = cell_act, plotit = TRUE)
+
+# How many individuals in each group
+cell_act %>% 
+   filter(visit == 1) %>% 
+   group_by(group) %>% 
+   summarise(subjects = n())
+```
+
+## Combined figure 8 of cell activation
+
+```{r fig_8, message = FALSE, warning = FALSE}
+gg_box_cd38hla <- readRDS("gg_box_cd38hla.rds")
+gg_actcv <- readRDS("gg_box_actcv.rds")
+my_comparisons <- list(c("none", "total"), c("total", "partial"))
+gg_box_cd38hla <- gg_box_cd38hla + stat_compare_means(comparisons = 
+                                   my_comparisons, 
+                                   label = "p.format")
+gg_actcv <- gg_actcv + stat_compare_means(comparisons = 
+                                   my_comparisons, 
+                                   label = "p.format")
+# take titles out of graphs
+#gg_box_cd38hla <- gg_box_cd38hla + labs(title = "", subtitle = "")
+#gg_actcv <- gg_actcv + labs(title = "", subtitle = "")
+cellact_plots <- ggarrange(gg_box_cd38hla, gg_actcv,  
+                  ncol = 2, nrow = 1)#,
+ #                 labels = c("Biomarker Expression", 
+ #                            "Corrected by log Viral Load"),
+ #                 label.x = -1)
+cellact_plots
+
+
+```
+
+```{r corr_cv_cell_act}
+
+gg_cv_cell_act <- cell_act %>% 
+   filter_at(vars(c(cd8_cd38_hladr_pct, log)), all_vars(!is.na(.))) %>% 
+   ggscatter(x = "log", y = "cd8_cd38_hladr_pct", 
+          add = "reg.line", jitter = TRUE, conf.int = TRUE, 
+          palette = "aaas",
+          xlab = "Viral Load (log10 copies/mL)",
+          ylab = "CD38+HLA-DR+ CD8+ T-cells Pct",  
+          cor.coef = TRUE,
+          ggtheme = theme_grey(), repel = TRUE, 
+          cor.coef.coord = c(5, 100),
+          cor.coeff.args = list(method = "spearman"))
+gg_cv_cell_act
+   
+## cell activation with CD4+
+
+gg_cd4_cell_act <- cell_act %>% 
+   filter_at(vars(c(cd8_cd38_hladr_pct, cd4_total)), all_vars(!is.na(.))) %>% 
+   ggscatter(x = "cd4_total", y = "cd8_cd38_hladr_pct", 
+          add = "reg.line", jitter = TRUE, conf.int = TRUE, 
+          palette = "aaas",
+          ylab = "",
+          xlab = "CD4+ T Cell Count / Cells per mL", 
+          cor.coef = TRUE,
+          ggtheme = theme_grey(), repel = TRUE, 
+          cor.coef.coord = c(150, 100),
+          cor.coeff.args = list(method = "spearman"))
+gg_cd4_cell_act
+
+## join two plots together
+
+cell_act_scatter_plots <- ggarrange(gg_cv_cell_act, gg_cd4_cell_act,  
+                  ncol = 2, nrow = 1,
+                  labels = c("Viral Load", "CD4+"))
+cell_act_scatter_plots
+
+```
+
+## correlations
+
+```{r cell_act_corrs, message = FALSE, warning = FALSE}
+corrr::correlate(cell_act[, c("log", "cd4_total", "cd8_cd38_hladr_pct")], 
+                 method = "spearman")
+cor.test(cell_act$log, cell_act$cd8_cd38_hladr_pct, method = "spearman")
+cor.test(cell_act$cd4_total, cell_act$cd8_cd38_hladr_pct, method = "spearman")
+```
+
+## Compare cell activation at baseline and week 12
+
+Is the cell activation higher at week 12 after reversion or less? in general and by group
+
+```{r cell_act_wk, message = FALSE, warning = FALSE}
+cell_act_wk <- cell_act %>% 
+   filter(visit %in% c(1, 4)) %>% 
+   mutate(visit = case_when(
+      visit == 1 ~ "baseline",
+      visit == 4 ~ "week 12"
+   )) 
+
+Desc(cd8_hladr_pct ~ visit, cell_act_wk)   
+wilcox.test(cd8_hladr_pct ~ visit, cell_act_wk, 
+            alternative = "greater")
+# Now do with total group
+Desc(cd8_hladr_pct ~ visit, 
+     cell_act_wk, subset = cell_act_wk$group == "total")   
+wilcox.test(cd8_hladr_pct ~ visit, 
+            cell_act_wk[cell_act_wk$group == "total",], 
+            alternative = "greater")
+```
+

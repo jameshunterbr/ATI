@@ -1,0 +1,97 @@
+---
+title: "substrates v. cleavage sites"
+author: "James R. Hunter"
+date: "2/20/2019"
+output: pdf_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r load_items, message = FALSE, warning = FALSE}
+librarian::shelf(tidyverse, kableExtra, scales, helfRlein, knitr, ggpubr, DescTools)
+muts_file <- readRDS("muts_file.rds")
+new_uchic <- ggsci::pal_uchicago("default")(9)[1:2]
+options(scipen = 9)
+```
+
+## gag Regions for all Muts
+
+### Put in gag regions to muts_file
+
+```{r gag_regs_hits}
+gag_str <- tibble(region = c("matrix", "capsid", "p2", "nucleocapsid", "p1", "p6"),
+                  start = as.integer(c(1, 135, 366, 381, 435, 451)), 
+                  end = as.integer(c(134, 365, 380, 434, 450, 563)))
+# end of p6 is treated as end of longest of the aligned sequences from the samples
+gag_str <- gag_str %>% 
+   mutate(reg_len = end - start + 1)
+
+# Modify muts_file to include region
+muts_file <- muts_file %>% 
+   mutate(region = case_when(
+         codon <= gag_str$end[1] ~ gag_str$region[1],
+         codon >= gag_str$start[2] & codon <= gag_str$end[2] ~ gag_str$region[2], 
+         codon >= gag_str$start[3] & codon <= gag_str$end[3] ~ gag_str$region[3], 
+         codon >= gag_str$start[4] & codon <= gag_str$end[4] ~ gag_str$region[4], 
+         codon >= gag_str$start[5] & codon <= gag_str$end[5] ~ gag_str$region[5], 
+         codon >= gag_str$start[6] ~ gag_str$region[6]))
+
+print(paste("For all", nrow(muts_file), "mutations"))
+(reg_table <- table(muts_file$region))
+```
+
+## Load cleavage site areas
+
+```{r csites}
+cs_ref <- tibble(id = c("MA/CA", "CA/p2", "p2/NC", "NC/p1", "p1/p6"),
+             start = c(131, 362, 377, 431, 447),
+             end = start + 6)
+cs_codons <- c(131, 132, 133, 134, 135, 135, 137, 362, 363, 364, 365, 366, 367, 368,
+               377, 378, 379, 380, 381, 382, 383, 431, 432, 433, 434, 435, 436, 437,
+               447, 448, 449, 450, 451, 452, 453)
+```
+
+## Clean up regions
+
+```{r gag_regions}
+
+muts_corr <- muts_file %>% 
+   filter(pre %nin% c("X", "-") & pre != std) %>% 
+   filter(post %nin% c("X", "-") & post != std)
+
+muts_corr_cs <- muts_corr %>% 
+   filter(codon %in% cs_codons)
+
+print(paste("number of mutations in cleavage sites =", nrow(muts_corr_cs)))
+
+muts_corr_cs_reg <- muts_corr_cs %>% 
+   group_by(region) %>% 
+   summarize(muts = n())
+
+muts_corr_subs <- muts_corr %>% 
+   filter(codon %nin% cs_codons )
+
+print(paste("number of mutations in cleavage sites =", nrow(muts_corr_subs)))
+
+
+muts_corr_subs_reg <- muts_corr_subs %>% 
+   group_by(region) %>% 
+   summarize(muts = n())
+muts_corr_subs_reg
+
+
+muts_corr_cs_reg
+
+prop_cs_tot <- nrow(muts_corr_cs)/(nrow(muts_corr_subs) + nrow(muts_corr_cs))
+percent(prop_cs_tot)
+
+aligned_length <- 506.9
+cs_length <- length(cs_codons)
+
+percent(cs_length/aligned_length)
+```
+
+
+
+

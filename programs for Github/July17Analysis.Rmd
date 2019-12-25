@@ -1,0 +1,548 @@
+---
+title: "STI 2017 Analysis"
+author: "James R. Hunter"
+date: "26 July 2017"
+output:
+  pdf_document: default
+  html_notebook: default
+editor_options:
+  chunk_output_type: inline
+---
+
+## Load Packages
+
+```{r loadmods, echo = TRUE}
+  suppressMessages(library(tidyverse))
+  suppressPackageStartupMessages(library(DescTools))
+  suppressPackageStartupMessages(library(knitr))
+  suppressPackageStartupMessages(library(RColorBrewer))
+  suppressPackageStartupMessages(library(broom))
+  suppressPackageStartupMessages(library(seqinr))
+  suppressPackageStartupMessages(library(ggjoy))
+  suppressPackageStartupMessages(library(ggpubr))
+  options(scipen = 0)
+```
+
+## Load Data
+
+```{r}
+load("activation.RData")
+load("pacdat.RData")
+```
+
+# Question 1
+
+Why viral loads increased (and CD4 decreased) after STI among individuals harboring WT strains?  It could be that the antiretrovirals were partially working, even with virologic failure, without the ability to select resistance.  More interesting:  it could be related to the disappearance of still non-described resistance mutations.  In order to conclude that, we need to evaluate plasma sequences from those 3 patients from before and after interruption.  We will have to speculate also about mutations at gag cleavage sites or RNAse H that eventualy reverted.
+
+***
+
+Individuals harboring WT strains are those without resistant mutations. First, determine who are the WT individuals without accepting the original `resist` variable classification. We do with by calling up the full catalog of mutations and see who had 0 total for TR and PR mutations across the 4 tests.
+
+
+```{r per patient mutations trpbmc}
+load("trpbm2.RData")
+trpbmpacs <- trpbm2 %>% 
+   group_by(n) %>% 
+   summarise(total = sum(value > 0))
+trpbnomuts <- trpbmpacs$n[trpbmpacs$total == 0]
+print("Patients with 0 TR resistant mutations:")
+print(as.character(trpbnomuts))
+```
+
+```{r per patient mutations prpbmc}
+load("prpbm2.RData")
+prpbmpacs <- prpbm2 %>% 
+   group_by(n) %>% 
+   summarise(total = sum(value > 0))
+prpbnomuts <- prpbmpacs$n[prpbmpacs$total == 0]
+print("Patients with 0 PR resistant mutations:")
+print(as.character(prpbnomuts))
+```
+
+The individuals not harboring resistant mutations are 2, 7, 37
+
+## Function for Matching 2 Sequences
+
+```{r}
+matched <- function(seq1, seq2) {
+   if(nchar(seq1) != nchar(seq2)) {
+      stop("Sequences not of equal length", call. = FALSE)
+   }
+   
+   # set up vector to list indices of non-matches
+   nomatch <- vector(mode = "integer", length = 0)
+   
+   # set up vector to list indices of partial matches
+   partial_match <- vector(mode = "integer", length = 0)
+   
+   # if the sequences are character vectors, put in string form
+   ifelse(length(seq1 != 1), seq1 <- c2s(seq1))
+   ifelse(length(seq2 != 1), seq2 <- c2s(seq2))
+   
+   # set up vector for matches using the code "y" = match,
+   # p = partial match, n = no match
+   matches  <-  vector(mode = "character", length = nchar(seq1))
+   
+   for (i in 1:nchar(seq1)) {
+      a <- substr(seq1, i, i)
+      b <- substr(seq2, i, i)
+      purine <- c("a", "g")
+      pyrimidine <- c("c", "t")
+      keto <- c("g", "t")
+      amino <- c("a", "c")
+      if (a == b) {
+         matches[i]  <-  "y"
+      }
+      else {
+         if((a == "r" | b == "r") & (a %in% purine | b %in% purine)){
+            matches[i]  <- "p" 
+         }
+         else {
+            if((a == "y" | b == "y") & (a %in% pyrimidine | b %in% pyrimidine)){
+               matches[i]  <- "p" 
+            }
+            else {
+               if((a == "m" | b == "m") & (a %in% amino | b %in% amino)){
+                  matches[i]  <- "p" 
+               }
+               else {
+                  if((a == "k" | b == "k") & (a %in% keto | b %in% keto)){
+                     matches[i]  <- "p" 
+                  }
+                  else {
+                     nomatch <- c(nomatch, i)
+                  }
+               }
+            }
+         }   
+      }
+   }
+   temp <- list(matches = sum(matches == "y"), partials = sum(matches == "p"), divergent = nomatch)
+}
+```
+
+## Function for padding out short sequences with "n"
+
+"n" stands for any nucleotide in the IUPAC alphabet
+
+```{r}
+seq_length_check <- function(seqs, nominal) {
+   for (i in 1:length(seqs)) {
+      temp <- s2c(seqs[[i]])
+      if (length(temp) < nominal) {
+         temp <- c(temp, rep("n", nominal - length(temp)))
+      }
+      if (i == 1) {
+         res <- matrix(temp, nrow = 1, byrow = TRUE)
+      }
+      else {
+         res <- rbind(res, temp)
+      }
+   }
+   return(res)
+}
+```
+
+## Load WT sequences pre- and post-STI into memory
+
+### Pre STI (Wk 0)
+
+```{r}
+seq_2_pre <- as.character(read.fasta("seq_case_2.fasta", seqtype = "DNA", as.string = TRUE)[1])
+seq_7_pre <- as.character(read.fasta("seq_case_7.fasta", seqtype = "DNA", as.string = TRUE)[1])
+seq_37_pre <- as.character(read.fasta("seq_case_37.fasta", seqtype = "DNA", as.string = TRUE)[1])
+no_res_pre <- read.alignment(file = "no_resist_before.fasta", format = "fasta")
+no_res_pre_seqsM <- seq_length_check(no_res_pre$seq, 1302)
+no_res_consen_pre.profile <- consensus(no_res_pre_seqsM, method = "profile", type = "DNA")
+no_res_consen_pre <- consensus(no_res_pre_seqsM, method = "majority") 
+#stored as character vector, not string
+
+```
+
+### Concordance of Pre STI Sequences with `no_res_consen_pre`
+
+```{r}
+seqscon_2_pre <- matched(seq_2_pre, c2s(no_res_consen_pre))
+seqscon_7_pre <- matched(seq_7_pre, c2s(no_res_consen_pre))
+seqscon_37_pre <- matched(seq_37_pre, c2s(no_res_consen_pre))
+avg_pre_concord <- 100 * mean(c(seqscon_2_pre[[1]], 
+                                seqscon_7_pre[[1]], 
+                                seqscon_37_pre[[1]]))/nchar(seq_2_pre)
+```
+
+The pre-STI consensus sequence (determined by majority vote among the sequences) is, on average, `r avg_pre_concord` % consistent with the sequences.
+
+### Post STI (Wk 12)
+
+```{r}
+seq_2_pos <- as.character(read.fasta("seq_case_2.fasta", seqtype = "DNA", as.string = TRUE)[2])
+seq_7_pos <- as.character(read.fasta("seq_case_7.fasta", seqtype = "DNA", as.string = TRUE)[2])
+seq_37_pos <- as.character(read.fasta("seq_case_37.fasta", seqtype = "DNA", as.string = TRUE)[2])
+no_res_post <- read.alignment(file = "no_resist_post.fasta", format = "fasta")
+no_res_post_seqsM <- seq_length_check(no_res_post$seq, 1302)
+no_res_consen_post.profile <- consensus(no_res_post_seqsM, method = "profile")
+no_res_consen_post <- consensus(no_res_post_seqsM, method = "majority") 
+#stored as character vector, not string
+```
+
+### Concordance of Post STI Sequences with `consen_post`
+
+```{r}
+seqscon_2_post <- matched(seq_2_pos, c2s(no_res_consen_post))
+seqscon_7_post <- matched(seq_7_pos, c2s(no_res_consen_post))
+seqscon_37_post <- matched(seq_37_pos, c2s(no_res_consen_post))
+avg_post_concord <- 100 * mean(c(seqscon_2_post[[1]], 
+                                 seqscon_7_post[[1]], 
+                                 seqscon_37_post[[1]]))/nchar(seq_2_pre)
+```
+
+The post-STI consensus sequence (determined by majority vote among the sequences) is, on average, `r avg_post_concord` % consistent with the sequences.
+
+### Compare pre- and post-STI consensus sequences
+
+Is there consistent pattern of change in WT sequences?
+
+```{r message = FALSE}
+WTprePostMatch <- matched(no_res_consen_pre, no_res_consen_post)
+WTprePostMatch
+WTprePostMatch_diff <- tibble(pos = WTprePostMatch$divergent, 
+                           pre_STI = no_res_consen_pre[pos],
+                           post_STI = no_res_consen_post[pos])
+kable(WTprePostMatch_diff)
+```
+
+Comparing the pre- and post-STI sequences for the wild type patients (n = 3), we find there are only 4 positions in which they differ. The other 1298 positions show a match or partial match (partial being defined as one of the two bases possible for the purine or pyrimidine in one of the sequences.)
+
+
+## Bring the pre- and post-STI sequences for patients with resistant mutations into memory and determine consensus versions for each
+
+Start with the full set of resistant mutation fasta sequences and then divide them into two groups: pre and post.
+
+```{r}
+pol_resist_fasta <- read.fasta("seqs_pol_resist.fasta", seqtype = "DNA", as.string = TRUE)
+
+## sequences 14, 15, 25, 32, 38, 40, 45, 49 do not have a post sequence. 
+## therefore, removing from the analysis as no comparison possible.
+
+pol_resist_fasta$`14A` <-  NULL
+pol_resist_fasta$`15A` <-  NULL
+pol_resist_fasta$`25A` <- NULL
+pol_resist_fasta$`32A` <-  NULL
+pol_resist_fasta$`38A` <-  NULL
+pol_resist_fasta$`40A` <-  NULL
+pol_resist_fasta$`45A` <-  NULL
+pol_resist_fasta$`49A` <-  NULL
+
+# define odd numbered (pre) sequences
+pre_seqs_no <- seq(1, length(pol_resist_fasta), 2)
+pre_seqs <- pol_resist_fasta[pre_seqs_no]
+
+## check result -- only pre's and write fasta file
+names(pre_seqs)
+write.fasta(pre_seqs, names = names(pre_seqs), file.out = "resist_pre.fasta")
+
+# define even numbered (post) sequences
+post_seqs_no <- seq(2, length(pol_resist_fasta), 2)
+post_seqs <- pol_resist_fasta[post_seqs_no]
+
+## check result -- only post's and write fasta file
+names(post_seqs)
+write.fasta(post_seqs, names = names(post_seqs), file.out = "resist_post.fasta")
+```
+
+### Find Consensus Sequences for resistant pre and post STI
+
+```{r}
+## pre sequences
+res_pre_seqs <- read.alignment(file = "resist_pre.fasta", format = "fasta")
+res_pre_seqsM <- seq_length_check(res_pre_seqs$seq, 1302)
+res_consen_pre.profile <- consensus(res_pre_seqsM, method = "profile", type = "DNA")
+res_consen_pre <- consensus(res_pre_seqsM, method = "majority") #stored as character vector, not string
+
+## post sequences
+res_post_seqs <- read.alignment(file = "resist_post.fasta", format = "fasta")
+res_post_seqsM <- seq_length_check(res_post_seqs$seq, 1302)
+res_consen_post.profile <- consensus(res_post_seqsM, method = "profile")
+res_consen_post <- consensus(res_post_seqsM, method = "majority") #stored as character vector, not string
+save(res_consen_pre, res_consen_pre.profile, res_consen_post, res_consen_post.profile,
+     file = "STI_pre_post_consensus.RData")
+```
+
+### Match pre- and post-consensus sequences
+
+```{r}
+prePostMatch <- matched(res_consen_pre, res_consen_post)
+prePostMatch
+```
+
+The pre- and post-consensus sequences matched on `r prePostMatch[[1]]` out of 1302 positions, or, `r round(100 * prePostMatch[[1]]/1302, 3)` % of the nucleotides.
+
+The positions in which they were different: `r prePostMatch[[2]]`
+
+### Match resist and non-resist pre consensuses
+
+```{r}
+res_non_res_preMatch <- matched(no_res_consen_pre, res_consen_pre)
+res_non_res_preMatch
+```
+
+The pre- resist and non-resist consensus sequences matched on `r res_non_res_preMatch[[1]]` out of 1302 positions, or, `r round(100 * res_non_res_preMatch[[1]]/1302, 3)` % of the nucleotides.
+
+#### Pre-Interruption Sequence Differences between Non-Resistant (`no_res`) and Resistant (`res`) Consensuses
+
+```{r}
+pre_STI_seq_diff <- tibble(pos = res_non_res_preMatch$divergent, 
+                           no_res = no_res_consen_pre[pos],
+                           res = res_consen_pre[pos])
+kable(pre_STI_seq_diff)
+```
+
+### Match resist and non-resist post consensuses
+
+```{r}
+res_non_res_postMatch <- matched(no_res_consen_post, res_consen_post)
+res_non_res_postMatch
+```
+
+The post-interruption resist and non-resist consensus sequences matched on `r res_non_res_postMatch[[1]]` out of 1302 positions, or, `r round(100 * res_non_res_postMatch[[1]]/1302, 3)` % of the nucleotides.
+
+#### Post-Interruption Sequence Differences between Non-Resistant (`no_res`) and Resistant (`res`) Consensuses
+
+```{r}
+post_STI_seq_diff <- tibble(pos = res_non_res_postMatch$divergent, 
+                           no_res = no_res_consen_post[pos],
+                           res = res_consen_post[pos])
+kable(post_STI_seq_diff)
+```
+
+
+# Question 2
+
+Why PBMCs mutations disappear with distinct dynamics?  Think about that.  We have  the selective pressure of the drug, all viruses from plasma and PBMCs will be resistant.  If selective pressure is withdrawal, all in plasma and PBMCs should be WT.  Presence of complete non- reversion = proviral compartment last longer than we think for some patients.  We can not calculate how long it lasts , I guess.  Partial reversion means that (i) virus recombines after selective pressure is gone., and new proviral DNA is seeded with recombinant viruses, and the longer it persist, the higher the lower is the fitness cost for this mutations or ARV class.  Other think is: specific resistance may be increasing the HIV latency in some proviral reservoir.
+
+***
+Selective pressure permits just the resistant viruses to replicate. It blocks replication of the wild type and any other type that is sensitive to the drug. If the pressure existed and was withdrawn (as is the case with STI and with stoppage of a drug for failure), I don't see why it should necessarily return to wild type. It is replicating successfully in its resistant mutated form. What is the pressure to make it return to wild type. I think it may mean that now wild type viruses that were latent (in one of the proviral reservoirs) can resume replication. As to the recombination, I think that's right because HIV doesn't have a good set of editing controls, so a number of recombinants can form randomly, a number of which will be able to replicate. Which? I don't think we can predict that. 
+
+# Question 5
+
+Is CD38 higher in resistant PBMCs as compared to WT? (adjusted for viral loads)  Hunt and Deeks described that plasma resistant strains poses higher cell activation than WT when adjusted for viral loads.  We have the opportunity to show this for PBMCs.
+
+***
+
+### First, with no adjustment for viral load.
+
+```{r}
+pacs_no_resist <- c(2, 7, 37)
+act_res_no_res <- act_data %>% 
+   select(subject:cviral, logcalc, cd4_total, 
+          cd8_total, cd38, hla_dr) %>% 
+   mutate(res_nores = ifelse(subject %in% pacs_no_resist, "wt", "res"))
+Desc(logcalc ~ cd38, data = act_res_no_res, plotit = TRUE)
+cor.test(act_res_no_res$logcalc, act_res_no_res$cd38, use = "complete.obs", method = "spearman" )
+act_res_no_res %>% 
+   group_by(res_nores) %>% 
+   summarize(avg_cd38 = mean(cd38, na.rm = TRUE), 
+             sd_cd38 = sd(cd38, na.rm = TRUE))
+
+## plot of cd38 split by resistance vs. wildtype  
+
+ggplot(act_res_no_res, aes(x = cd38, y = res_nores)) +
+   geom_joy(scale = 0.85) +
+   scale_y_discrete(name = "Resistant or Wild Type", labels = c("Resistant", "Wild Type")) +
+   labs(x = "cd38", title = "Distribution of CD38 per Type")
+```
+
+Remember in the Wild Type curve, appearances are deceptive because there are only 3 wild type cases which is what is producing the three peaks on the curve.
+
+Also in the line graph, it appears that above a cd38 count of approximately 70, the viral load does not increase much. That is viral load is sensitive to cd38 up to that point, but not beyond.
+
+### Now with adjustment for viral load
+
+Adjustment will be cd38 count per unit logcalc (i.e., cd38 divided by logcalc)
+To keep the numbers in scale, the case with logcalc = 0.0 will be eliminated from this calculation.
+
+```{r}
+adj_cd38_test <- act_res_no_res %>% 
+   filter(logcalc != 0.0) %>% 
+   mutate(cd38_adj = cd38/logcalc) %>% 
+   group_by(res_nores) %>% 
+   summarize(avg_cd38 = mean(cd38_adj, na.rm = TRUE), 
+             sd_cd38 = sd(cd38_adj, na.rm = TRUE))
+
+act_res_no_res %>% 
+   filter(logcalc != 0.0) %>% 
+   mutate(cd38_adj = cd38/logcalc) %>% 
+   ggplot(aes(x = cd38_adj, y = res_nores)) +
+      geom_joy(scale = 0.85) +
+      scale_y_discrete(name = "Resistant or Wild Type", labels = c("Resistant", "Wild Type")) +
+      labs(x = "cd38 per unit log viral load", title = "Distribution of CD38 per Type", 
+           subtitle = "Adjusted for log viral load")
+```
+
+Remember the same three peak problem for the wild type curve.
+
+Our problem here is the three cases in the wild type category. With only these cases, population parameters could be anything. A simple t-test with its low t-score, shows the effect of the inequality of the count between the wild type and the resistant strain patients. The Hunt article focuses on the differences between Elite Controllers and other groups of HIV patients rather than wild type vs. resistant, which we have in this study.
+
+```{r}
+t.test(cd38 ~ res_nores, data = act_res_no_res )
+```
+
+# Question 4 (Moved to permit use of data frame created above)
+
+Why CD4 decrease upon STI.  Is it because viral load increases or because CD38 increases?  Can we sort this out? Which is the independent variable? 
+
+***
+
+### Create variable `wk`, which is visit translated into 0, 4, 8, 12 weeks
+
+```{r}
+act_res_no_res <- act_res_no_res %>% 
+   mutate(wk = case_when(visit == 1 ~ 0,
+                         visit == 2 ~ 4,
+                         visit == 3 ~ 8,
+                         visit == 4 ~ 12))
+```
+
+### Is CD4 decrease consistent between WT and Resistant groups?
+
+Should they be considered separately or can we use the entire dataset as a group?
+
+```{r message = FALSE}
+# Resistant cases
+resbxp <- act_res_no_res %>% 
+   filter(res_nores == "res") %>% 
+   ggplot(aes(x = factor(wk), y = cd4_total)) +
+      geom_boxplot() +
+      labs(title = "CD4 by Week in Resistant Patients",
+           y = "CD4 total", x = "Week")
+
+res_mod1 <- lm(cd4_total ~ wk, data = act_res_no_res, 
+               subset = (res_nores == "res"))
+summary(res_mod1)
+
+## WT Cases
+
+wtdp <- act_res_no_res %>% 
+   filter(res_nores == "wt") %>% 
+   ggplot(aes(x = factor(wk), y = cd4_total, label = subject)) +
+      geom_point() +
+      geom_text(vjust = 0.5, nudge_x = 0.1) +
+      labs(title = "CD4 by Week in Wild Type Patients",
+           y = "CD4 total", x = "Week")
+
+wt_mod1 <- lm(cd4_total ~ wk, data = act_res_no_res, 
+               subset = (res_nores == "wt"))
+summary(wt_mod1)
+
+ggarrange(resbxp, wtdp, 
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1)
+```
+
+The resistant cases (A) show a clear pattern of decrease in CD4 over the period of the study, a slope of `r coef(res_mod1)[2]`. However, with only 3 cases the wild type patients (B) show no clear pattern (The $R^2$ for the model is functionally 0 and two of the three cases have missing values for week 12.) I am going to proceed to answer the question with the resistant cases and leave the wild type cases out.
+
+### Models of CD4 Decrease in Relation to Viral Load and/or CD38 increase
+
+```{r}
+## Create data frame and remove cases with NA in in
+res_pacs <- act_res_no_res %>% 
+   filter(res_nores == "res") %>% 
+   filter(!is.na(cd4_total) & !is.na(logcalc) & !is.na(cd38))
+
+## Model 1 - just viral load
+mod1 <- lm(cd4_total ~ logcalc, data = res_pacs)
+
+## Model 2 - just cd38
+
+mod2 <-  lm(cd4_total ~ cd38, data = res_pacs)
+
+## Model 3 - both viral load and cd 38
+
+mod3 <- lm(cd4_total ~ logcalc + cd38, data = res_pacs)
+
+## Model 4 -- both factors + interaction
+
+mod4 <- lm(cd4_total ~ logcalc + cd38 + logcalc:cd38, data = res_pacs)
+
+## group together the models
+### coefficients data frame
+regcoef <- tidy(mod1) %>% 
+   add_column(model = "logcv", .before = "term" )
+regcoef <- rbind(regcoef, tidy(mod2) %>% 
+   add_column(model = "cd38", .before = "term"))
+regcoef <- rbind(regcoef, tidy(mod3) %>% 
+   add_column(model = "both", .before = "term"))
+regcoef <- rbind(regcoef, tidy(mod4) %>% 
+   add_column(model = "inter", .before = "term"))
+
+### summary data frame
+regsumm <- glance(mod1) %>% 
+   add_column(model = "logcv", .before = "r.squared" )
+regsumm <- rbind(regsumm, glance(mod2) %>% 
+   add_column(model = "cd38", .before = "r.squared"))
+regsumm <- rbind(regsumm, glance(mod3) %>% 
+   add_column(model = "both", .before = "r.squared"))
+regsumm <- rbind(regsumm, glance(mod4) %>% 
+   add_column(model = "inter", .before = "r.squared"))
+regsumm <- regsumm %>% select(1:9) # reduce num of measures
+
+kable(regcoef)
+kable(regsumm)
+```
+
+The best models are the two that include both cd38 and the log viral load. The difference in the p-value of the model that includes the interaction between the viral load and the cd 38 suggests that they work together, as the most important term in this model is the interaction term. Interestingly, this model is the only one in which the terms themselves are not significant, although the model itself is significant and the $R^2$ for this is the highest. So, the answer is that there is no clear answer in terms of the data.
+
+# Question 3 (also out of order to take advantage of data frame)
+
+Why PBMC WT have higher viral load increase than WT?  They are all WT in the plasma!    Here something new!  High proviral resistant reservoir is associated to higher viruses production.  You cannot now it, unless you genotype PBMCs, which no one does.
+
+***
+
+Which group has the higher viral load increase over the 12 weeks?
+
+```{r message = FALSE}
+ avgvlwk <- act_res_no_res %>% 
+   group_by(res_nores, wk) %>% 
+   mutate(avglog = mean(logcalc, na.rm = TRUE)) %>% 
+   ggplot(aes(x = wk, y = avglog, group = res_nores, color = res_nores)) +
+      geom_line() +
+      scale_color_brewer(palette = "Set1") + 
+      scale_x_continuous(breaks = c(0, 4, 8, 12)) +
+      labs(title = "Average Log Viral Load",
+           x = "Week", y = "log10 Viral Load", color = "Group")
+
+# remove week 12 from regressions since wild type has only 1 value (2 are NA)
+regressions <- act_res_no_res %>%
+   filter(wk != 12) %>% 
+   group_by(res_nores) %>% do(fit = lm(logcalc ~ wk, .))
+
+regressions %>% tidy(fit)
+regressions %>% glance(fit) %>% select(1:9)
+
+res_reg <- lm(logcalc ~ wk, data = act_res_no_res, 
+              subset = (res_nores == "res"))
+wt_reg <- lm(logcalc ~ wk, data = act_res_no_res, 
+              subset = (res_nores == "wt"))
+x <- act_res_no_res %>% 
+   filter(!is.na(logcalc)) %>% 
+   group_by(res_nores)
+sp <- ggscatter(x, x = "wk", y = "logcalc",
+                add = "reg.line",  
+                conf.int = TRUE,  
+                color = "res_nores", palette = "Set1",
+                shape = "res_nores",
+                ggtheme = theme_gray()
+                ) 
+sp <- sp + scale_x_continuous(breaks = c(0, 4, 8, 12)) +
+      scale_x_continuous(breaks = c(0, 4, 8, 12)) +
+      labs(title = "Regression",
+           x = "Week", y = "log10 Viral Load")
+
+ggarrange(avgvlwk, sp,
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1, 
+          common.legend = TRUE)
+
+```
+
+As can be seen in the confidence intervals in the regression graph (B) (a regression conducted using the data from the first three visits as the wild type only had one case on the fourth visit), the interval around the resistant line is quite narrow indicating that the line is trustworthy. However, the three case problem for the wild type group is shown very clearly given the width of the confidence interval.

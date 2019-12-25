@@ -1,0 +1,176 @@
+---
+title: "Models of Cell Activation v1"
+author: "James R. Hunter"
+date: "4 June 2018"
+output:
+  pdf_document: default
+  word_document: default
+  html_notebook: default
+tables: yes
+editor_options:
+  chunk_output_type: inline
+version: 1
+---
+
+
+```{r loadmods, echo = TRUE, message = FALSE}
+library(tidyverse)
+library(DescTools)
+library(knitr)
+library(RColorBrewer)
+library(psych)
+library(broom)
+library(readxl)
+library(ggpubr)
+library(kableExtra)
+library(stringr)
+options(scipen = 5)
+load("activation.RData")
+rm(match_data)
+rev_groups <- readRDS("rev_groups.rds")
+```
+
+## Number of Mutations per Patient in PBMC
+
+### Global Variables
+
+```{r muts_global}
+mutnamespr <- c("pr10", "pr20", "pr24", "pr30", "pr32", "pr36", "pr46", "pr47",
+              "pr48", "pr50", "pr53", "pr54", "pr63", "pr71", "pr73", "pr77",
+              "pr82", "pr84", "pr88", "pr89", "pr90", "pr93")
+mutnamestr <- c("tr41", "tr44", "tr65", "tr67", "tr69", "tr70", "tr74", "tr75",
+              "tr103", "tr106", "tr108", "tr118", "tr179", "tr181", "tr184",
+              "tr188", "tr190", "tr208", "tr210", "tr211", "tr214", "tr215",
+              "tr219")
+wkdesigpl <- c("bl", "12")
+wkdesigpbmc <- c("bl", "4", "8", "12")
+pacs_resist <- rev_groups  %>% 
+   filter(rev_group != 0)
+pacs_resist <- as.numeric(pacs_resist$n)
+rev_groups <- rev_groups %>% 
+   filter(rev_group != 0) %>% 
+   select(rev_group)
+
+```
+
+
+### PR Region
+
+```{r muts_pats_pr, eval = FALSE}
+load("prpbm2.RData")
+
+prpbmc_tot <- prpbm2 %>% 
+   filter(n %in% pacs_resist)
+
+# count how many mutations for each patient
+
+prpbmc_summ <- tibble(n = pacs_resist,
+                     mutsbl = 0,
+                     muts04 = 0,
+                     muts08 = 0,
+                     muts12 = 0)
+
+# baseline
+
+for (i in 1:length(pacs_resist)) {
+  prpbmc_summ$mutsbl[i] <- sum(prpbmc_tot$value[prpbmc_tot$n == pacs_resist[i] & 
+                                                  prpbmc_tot$wk == 0]) 
+}
+
+# 4 weeks
+
+for (i in 1:length(pacs_resist)) {
+  prpbmc_summ$muts04[i] <- sum(prpbmc_tot$value[prpbmc_tot$n == pacs_resist[i] & 
+                                                  prpbmc_tot$wk == 4]) 
+}
+
+# 8 weeks
+
+for (i in 1:length(pacs_resist)) {
+  prpbmc_summ$muts08[i] <- sum(prpbmc_tot$value[prpbmc_tot$n == pacs_resist[i] & 
+                                                  prpbmc_tot$wk == 8]) 
+}
+
+## 12 weeks (end of study)
+for (i in 1:length(pacs_resist)) {
+  prpbmc_summ$muts12[i] <- sum(prpbmc_tot$value[prpbmc_tot$n == pacs_resist[i] & 
+                                                  prpbmc_tot$wk == 12]) 
+}
+
+kable(prpbmc_summ, caption = "Protease PBMC Mutations", format = "markdown",
+      col.names = c("Patient", "Baseline", "4 Weeks", "8 Weeks", "12 Weeks"))
+
+prpbmc_summ$group <- rev_groups$rev_group
+prpbmc_summ$type <- "pr"
+saveRDS(prpbmc_summ, file = "prpbmc_muts_pac.rds")
+```
+
+### TR region
+
+```{r muts_pats_tr, eval = FALSE}
+
+load("trpbm2.RData")
+
+trpbmc_tot <- trpbm2 %>% 
+   filter(n %in% pacs_resist)
+
+# count how many mutations for each patient
+
+trpbmc_summ <- tibble(n = pacs_resist,
+                     mutsbl = 0,
+                     muts04 = 0,
+                     muts08 = 0,
+                     muts12 = 0)
+
+# baseline
+
+for (i in 1:length(pacs_resist)) {
+  trpbmc_summ$mutsbl[i] <- sum(trpbmc_tot$value[trpbmc_tot$n == pacs_resist[i] & 
+                                                  trpbmc_tot$wk == 0]) 
+}
+
+# 4 weeks
+
+for (i in 1:length(pacs_resist)) {
+  trpbmc_summ$muts04[i] <- sum(trpbmc_tot$value[trpbmc_tot$n == pacs_resist[i] & 
+                                                  trpbmc_tot$wk == 4]) 
+}
+
+# 8 weeks
+
+for (i in 1:length(pacs_resist)) {
+  trpbmc_summ$muts08[i] <- sum(trpbmc_tot$value[trpbmc_tot$n == pacs_resist[i] & 
+                                                  trpbmc_tot$wk == 8]) 
+}
+
+# 12 weeks (end of study)
+for (i in 1:length(pacs_resist)) {
+  trpbmc_summ$muts12[i] <- sum(trpbmc_tot$value[trpbmc_tot$n == pacs_resist[i] & 
+                                                  trpbmc_tot$wk == 12]) 
+}
+
+kable(trpbmc_summ, caption = "Reverse Transcriptase PBMC Mutations", format = "markdown",
+      col.names = c("Patient", "Baseline", "4 Weeks", "8 Weeks", "12 Weeks"))
+
+trpbmc_summ$group <- rev_groups$rev_group
+trpbmc_summ$type <- "tr"
+saveRDS(trpbmc_summ, file = "trpbmc_muts_pac.rds")
+```
+
+## Set up data
+
+```{r}
+trpbmc <- readRDS("trpbmc_muts_pac.rds")
+prpbmc <- readRDS("prpbmc_muts_pac.rds")
+all
+pacs_no_resist <- c(2, 11) # Revised reversion groups
+act_res_no_res <- act_data %>% 
+   select(subject, age, gender, visit, logcalc, cd4_total, cd8_total, 
+          cd38, hla_dr) %>% 
+   mutate(res_nores = ifelse(subject %in% pacs_no_resist, "no_resist", "resist")) %>% 
+   mutate(cd4cd8 = cd4_total/cd8_total)
+resist_act <- act_res_no_res %>% 
+   filter(res_nores == "resist")
+resist_act$group <- rep(rev_groups$rev_group, each = 4)
+```
+

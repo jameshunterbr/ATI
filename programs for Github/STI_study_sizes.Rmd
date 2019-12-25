@@ -1,0 +1,33 @@
+---
+title: "STI -- Study Sizes to Compare with Ours"
+author: "James R. Hunter"
+date: "24 February 2018"
+output:
+  word_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+tables: yes
+editor_options:
+  chunk_output_type: inline
+version: 1
+---
+
+## Load Packages
+
+```{r loadmods, echo = TRUE, message = FALSE}
+library(tidyverse)
+library(DescTools)
+library(knitr)
+library(readxl)
+options(scipen = 5)
+```
+
+
+```{r load data and do eda}
+studies <- read_excel("STI study sizes.xlsx")
+Desc(studies$n)
+kable(studies)
+```
+

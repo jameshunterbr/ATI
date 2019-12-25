@@ -1,0 +1,41 @@
+---
+title: "Plasma Calculations for STI"
+author: "James Hunter"
+date: "February 17, 2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages
+```{r loadpack}
+suppressPackageStartupMessages(library(tidyr))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(readr))
+suppressPackageStartupMessages(library(DescTools))
+suppressPackageStartupMessages(library(caret))
+suppressPackageStartupMessages(library(RColorBrewer))
+suppressPackageStartupMessages(library(rafalib))
+hmcol <- colorRampPalette(rev(brewer.pal(11, "Spectral")))(100)
+```
+
+## Load Data from Pat_PlaniCompletaPlasma06042004.xls with conversion to csv
+
+```{r loaddata}
+plasmamuts <- read_csv("Complete_Plasma_06042004.csv")
+# transpose to make the codons into variables
+plasmamuts <- as.data.frame(t(plasmamuts), stringsAsFactors = FALSE)
+# pull out codon names
+cods <- as.character((plasmamuts[1,]))
+# Make codon names variable names
+colnames(plasmamuts) <- cods
+# Remove codon name row
+plasmamuts <- plasmamuts[-1,]
+# Add variable for type of mutation
+plasmamuttype <- rep(c("PI", "NRTI", "NNRTI", "NRTI", "NNRTI", "NRTI", "NNRTI", "NRTI"), times = c(18, 8, 4, 2, 1, 1, 2, 3))
+```
+
+# Count plasma

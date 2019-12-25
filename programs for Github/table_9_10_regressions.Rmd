@@ -1,0 +1,84 @@
+---
+title: "cd4_regression_models"
+author: "James R. Hunter"
+date: "5/2/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loadmods, echo = TRUE, message = FALSE}
+library(tidyverse)
+library(DescTools)
+library(knitr)
+library(RColorBrewer)
+library(psych)
+library(broom)
+library(readxl)
+library(ggpubr)
+library(kableExtra)
+library(stringr)
+options(scipen = 5)
+load("activation.RData")
+```
+
+## Set up data
+
+```{r}
+pacs_no_resist <- c(2, 11) # Revised reversion groups
+act_res_no_res <- act_data %>% 
+   select(subject:cviral, logcalc, cd4_total, 
+          cd8_total, cd38, hla_dr) %>% 
+   mutate(res_nores = ifelse(subject %in% pacs_no_resist, "wt", "res"))
+```
+
+### Models of CD4 Decrease in Relation to Viral Load and/or CD38 increase
+
+```{r}
+## Create data frame and remove cases with NA in in
+res_pacs <- act_res_no_res %>% 
+   filter(res_nores == "res") %>% 
+   filter(!is.na(cd4_total) & !is.na(logcalc) & !is.na(cd38))
+
+## Model 1 - just viral load
+mod1 <- lm(cd4_total ~ logcalc, data = res_pacs)
+
+## Model 2 - just cd38
+
+mod2 <-  lm(cd4_total ~ cd38, data = res_pacs)
+
+## Model 3 - both viral load and cd 38
+
+mod3 <- lm(cd4_total ~ logcalc + cd38, data = res_pacs)
+
+## Model 4 -- both factors + interaction
+
+mod4 <- lm(cd4_total ~ logcalc + cd38 + logcalc:cd38, data = res_pacs)
+
+## group together the models
+### coefficients data frame
+regcoef <- tidy(mod1) %>% 
+   add_column(model = "logcv", .before = "term" )
+regcoef <- rbind(regcoef, tidy(mod2) %>% 
+   add_column(model = "cd38", .before = "term"))
+regcoef <- rbind(regcoef, tidy(mod3) %>% 
+   add_column(model = "both", .before = "term"))
+regcoef <- rbind(regcoef, tidy(mod4) %>% 
+   add_column(model = "inter", .before = "term"))
+
+### summary data frame
+regsumm <- glance(mod1) %>% 
+   add_column(model = "logcv", .before = "r.squared" )
+regsumm <- rbind(regsumm, glance(mod2) %>% 
+   add_column(model = "cd38", .before = "r.squared"))
+regsumm <- rbind(regsumm, glance(mod3) %>% 
+   add_column(model = "both", .before = "r.squared"))
+regsumm <- rbind(regsumm, glance(mod4) %>% 
+   add_column(model = "inter", .before = "r.squared"))
+regsumm <- regsumm %>% select(1:9) # reduce num of measures
+
+kable(regcoef)
+kable(regsumm)
+```

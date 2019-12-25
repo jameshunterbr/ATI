@@ -1,0 +1,414 @@
+---
+title: "Calculations with Revised Reversion Groups"
+author: "James R. Hunter"
+date: "1 June 2018"
+output:
+  pdf_document: default
+  word_document: default
+  html_notebook: default
+tables: yes
+editor_options:
+  chunk_output_type: inline
+version: 2
+---
+
+Last week, I determined that some of the original assignments to the reversion groups were wrong. Here, **I will re-establish the groups based on the decision rule outlined in the "Total Reversion Groups" report and re-run the analyses that used the reversion groups.**
+
+## Load Packages
+
+```{r loadmods, echo = TRUE, message = FALSE}
+library(tidyverse)
+library(DescTools)
+library(knitr)
+library(RColorBrewer)
+library(readxl)
+library(ggpubr)
+library(kableExtra)
+library(stringr)
+options(scipen = 5)
+```
+
+## Load Data
+
+```{r loaddata}
+
+load("pacdat.RData")
+rev_groups <- readRDS("rev_groups.rds")
+```
+
+## Create new version of pacdata and pacdat2 with revised groups
+
+```{r rev_pacdat}
+# wide format
+pacdata_rev <- pacdata %>% 
+   mutate(grupo = as.integer(rev_groups$rev_group)) %>% 
+   mutate(resist = ifelse(grupo == 0, "NR", "R"))
+
+# Change the 9's (non-resistant controls) to 1's for patients 7 and 37 who moved from 
+# controls to nones
+for (i in 1:6) {
+   pacdata_rev[pacdata_rev$pac == 7, 3+i] <-  1
+   pacdata_rev[pacdata_rev$pac == 37, 3+i] <-  1
+   pacdata_rev[pacdata_rev$pac == 11, 3+i]  <-  9 # Do the reverse for case 11 to control
+}
+
+saveRDS(pacdata_rev, file = "pacdata_rev.rds")
+
+# long format
+# cv
+cv <- pacdata_rev %>% 
+   select(c(pac:grupo, cv1:cv4, resist)) %>% 
+   gather(type, value, cv1:cv4) %>% 
+   mutate(type = "cv") %>% 
+   mutate(wk = rep(c(0, 4, 8, 12), each = 38))
+
+# cd4
+cd4 <- pacdata_rev %>% 
+   select(c(pac:grupo, CD41:CD412, resist)) %>% 
+   gather(type, value, CD41:CD412) %>% 
+   mutate(type = "cd4") %>% 
+   mutate(wk = rep(c(0, 4, 8, 12), each = 38))
+
+# cd8
+cd8 <- pacdata_rev %>% 
+   select(c(pac:grupo, CD81:CD812, resist)) %>% 
+   gather(type, value, CD81:CD812) %>%  
+   mutate(type = "cd8") %>% 
+   mutate(wk = rep(c(0, 4, 8, 12), each = 38))
+
+pacdat2_rev <- bind_rows(cv, cd4, cd8) %>% 
+   mutate(wk = factor(wk)) %>% 
+   mutate(type = factor(type, levels = c("cv", "cd4", "cd8")))
+saveRDS(pacdat2_rev, file = "pacdat2_rev.rds")
+# clean up
+rm(cv, cd4, cd8)
+```
+
+## Basic Exploratory Data on Revised Groups
+
+```{r eda_revgroup}
+kable(table(pacdata_rev$grupo), caption = "Revised Group Totals", col.names = 
+         c("Group", "Frequency"))
+# Show comparative totals
+comp_groups <- rev_groups %>% 
+   select(group, rev_group) %>% 
+   mutate(group = case_when(
+      group == 0 ~ "control",
+      group == 1 ~ "none",
+      group == 2 ~ "total",
+      group == 3 ~ "partial")) %>% 
+   mutate(rev_group = case_when(
+      rev_group == 0 ~ "control",
+      rev_group == 1 ~ "none",
+      rev_group == 2 ~ "total",
+      rev_group == 3 ~ "partial"))
+
+group_tots <- tibble(name = c("control", "none", "total", "partial"),
+                     Original = 0L,
+                     Revised = 0L)
+for (i in 1:4) {
+   group_tots$Original[i] <- sum(comp_groups$group == group_tots$name[i])
+   group_tots$Revised[i] <- sum(comp_groups$rev_group == group_tots$name[i])
+}
+
+kable(group_tots, caption = "Comparison of Original and Revised Groups", 
+       col.names = c("Group", "Original", "Revised"))
+grgroup_tots <- group_tots %>% 
+   gather(stage, number, -1) %>% 
+   ggbarplot(x = "name", y = "number", fill = "stage", color = "stage",
+             palette = "aaas",
+             position = position_dodge(0.8),
+             title = "Comparison of Original and Revised Groups",
+             xlab = "Group",
+             ylab = "Frequency",
+             label = TRUE,
+             lab.size = 3,
+             ggtheme = theme_gray())
+ggpar(grgroup_tots, legend.title = "")
+
+## resistance
+table(pacdata_rev$resist)
+```
+
+## Table 1 -- Viral Load by Reversion Group
+
+```{r}
+avgvl_rev <- pacdat2_rev %>% 
+   filter(type == "cv") %>%
+   mutate(grupo = case_when(
+      grupo == 0 ~ "control",
+      grupo == 1 ~ "none",
+      grupo == 2 ~ "total",
+      grupo == 3 ~ "partial"
+   )) %>% 
+   mutate(res_nores = factor((ifelse(grupo == "control", "NR", "R")))) %>%  
+   mutate(wk = factor(wk)) %>% 
+   mutate(value = log10(value)) %>% 
+   group_by(grupo, wk, res_nores) %>% 
+   summarize(avg = mean(value), med = median(value)) %>% 
+   ungroup()
+all <- pacdat2_rev %>% 
+   filter(type == "cv") %>%
+   mutate(res_nores = factor((ifelse(grupo == "control", "NR", "R")))) %>%  
+   filter(res_nores == "R") %>% 
+   mutate(wk = factor(wk)) %>% 
+   mutate(value = log10(value)) %>% 
+   group_by(wk) %>% 
+   summarize(avg = mean(value), med = median(value))
+avgvl_rev <- avgvl_rev %>% 
+   add_row(grupo = "all_resist", 
+           wk = all$wk,
+           res_nores = "R",
+           avg = all$avg, 
+           med = all$med)
+avgvl_rev
+saveRDS(avgvl_rev, file = "avgvl_rev_fig1.rds")
+# p-values by t.test
+options(scipen = 1)
+t.test(avgvl_rev$avg[avgvl_rev$grupo == "none"])
+t.test(avgvl_rev$avg[avgvl_rev$grupo == "partial"])
+t.test(avgvl_rev$avg[avgvl_rev$grupo == "total"])
+```
+
+```{r fig1draw}
+# Draw Figure 1 graph -- Viral Load
+cvfig1_rev <- avgvl_rev %>% 
+   filter(res_nores == "R") %>% 
+   ggline(x = "wk", y = "avg", 
+       group = "grupo", 
+       palette = "aaas", 
+       color = "grupo",
+       plot_type = "b", 
+       legend = "bottom",
+       legend.title = "",
+       title = "Mean Viral Load Evolution by Reversion Group", 
+       font.main = c(16),
+       xlab = "Week/Test", 
+       ylab = "Mean Viral Load (log10 copies/mL)", 
+       ggtheme = theme_gray())
+cvfig1_rev
+```
+
+### t-test of significance between week 0 and week 12 for groups
+
+```{r cvttest}
+beginendvl_rev <- pacdat2_rev %>% 
+   filter(type == "cv" & wk %in% c(0, 12)) %>% 
+   mutate(grupo = case_when(
+      grupo == 0 ~ "control",
+      grupo == 1 ~ "none",
+      grupo == 2 ~ "total",
+      grupo == 3 ~ "partial"
+   )) %>% 
+   mutate(value = log10(value))
+
+# Control
+wilcox.test(value ~ wk, data = beginendvl_rev, subset = grupo == "control")
+# No reversion
+wilcox.test(value ~ wk, data = beginendvl_rev, subset = grupo == "none")
+# total reversion
+wilcox.test(value ~ wk, data = beginendvl_rev, subset = grupo == "total")
+# partial reversion
+wilcox.test(value ~ wk, data = beginendvl_rev, subset = grupo == "partial")
+
+Desc(value ~ wk, data = beginendvl_rev, plotit = TRUE)
+Desc(log10(value) ~ factor(wk), data = pacdat2_rev, subset = type == "cv")
+
+# Increase in CV for Total group 
+
+totcvwk <- avgvl_rev %>% 
+   filter(grupo == "total") %>% 
+   select(wk, avg)
+
+diff48 <- totcvwk$avg[totcvwk$wk == "8"] - totcvwk$avg[totcvwk$wk == "4"]
+diff812 <- totcvwk$avg[totcvwk$wk == "12"] - totcvwk$avg[totcvwk$wk == "8"] 
+print(paste("Difference wk 4 - wk 8:", diff48))
+print(paste("Difference wk 8 - wk 12:", diff812))
+print(paste("% Diff wk 4 - wk 8:", 100 * diff48/totcvwk$avg[totcvwk$wk == "4"]))
+print(paste("% Diff wk 8 - wk 12:", 100 * diff812/totcvwk$avg[totcvwk$wk == "8"]))
+diff12parttot <- avgvl_rev$avg[avgvl_rev$grupo == "total" & 
+                                    avgvl_rev$wk == "12"] -
+                 avgvl_rev$avg[avgvl_rev$grupo == "partial" & 
+                                    avgvl_rev$wk == "12"]
+diff12parttot
+```
+
+## Table 2 -- Means for CD4+ T Cells for Reversion Groups (Cells/mL)
+
+```{r}
+avgcd4_rev <- pacdat2_rev %>% 
+   filter(type == "cd4") %>%
+   mutate(grupo = case_when(
+      grupo == 0 ~ "control",
+      grupo == 1 ~ "none",
+      grupo == 2 ~ "total",
+      grupo == 3 ~ "partial"
+   )) %>% 
+   mutate(resist = factor(resist)) %>%  
+   group_by(grupo, wk, resist) %>% 
+   summarize(avg = mean(value), med = median(value)) %>% 
+   ungroup()
+all <- pacdat2_rev %>% 
+   filter(type == "cd4") %>%
+   mutate(res_nores = factor((ifelse(grupo == "control", "NR", "R")))) %>%  
+   filter(res_nores == "R") %>% 
+   mutate(wk = factor(wk)) %>% 
+   group_by(wk) %>% 
+   summarize(avg = mean(value), med = median(value))
+avgcd4_rev <- avgcd4_rev %>% 
+   add_row(grupo = "all_resist", 
+           wk = all$wk,
+           resist = "R",
+           avg = all$avg, 
+           med = all$med)
+
+avgcd4_rev
+saveRDS(avgcd4_rev, file = "avgcd4_rev_fig2.rds")
+```
+
+
+```{r fig2draw}
+# Draw Figure 1 graph -- Viral Load
+cdfig2_rev <- avgcd4_rev %>% 
+   filter(resist == "R") %>% 
+   ggline(x = "wk", y = "avg", 
+       group = "grupo", 
+       palette = "npg", 
+       color = "grupo",
+       plot_type = "b", 
+       legend = "bottom",
+       legend.title = "",
+       title = "Mean CD4+ T Cell Evolution by Reversion Group", 
+       font.main = c(16),
+       xlab = "Week/Test", 
+       ylab = "Mean CD4 T cell count (cells/mL)", 
+       ggtheme = theme_gray())
+cdfig2_rev
+```
+
+### t-test of Difference in CD4 resist/non-resist patients
+
+```{r cd4ttest}
+resistpacscd4_rev <- pacdat2_rev %>% 
+   filter(type == "cd4" & resist == "R")
+t.test(resistpacscd4_rev$value[resistpacscd4_rev$wk == 0],
+       resistpacscd4_rev$value[resistpacscd4_rev$wk == 12])
+```
+
+## CD8 - Supplementary Materials
+
+### Table S2
+
+```{r tables2rev}
+avgcd8_rev <- pacdat2_rev %>% 
+   filter(type == "cd8") %>%
+   mutate(grupo = case_when(
+      grupo == 0 ~ "control",
+      grupo == 1 ~ "none",
+      grupo == 2 ~ "total",
+      grupo == 3 ~ "partial"
+   )) %>% 
+   mutate(resist = factor(resist)) %>%  
+   group_by(grupo, wk, resist) %>% 
+   summarize(avg = mean(value), med = median(value))
+avgcd8_rev
+saveRDS(avgcd8_rev, file = "avgcd8_rev_figS1.rds")
+```
+
+### Figure S1
+
+```{r figS1}
+cdfigS1_rev <- ggline(data = avgcd8_rev, x = "wk", y = "avg", 
+       group = "grupo", 
+       palette = "aaas", 
+       color = "grupo",
+       plot_type = "b", 
+       legend = "bottom",
+       legend.title = "",
+       title = "Mean CD8+ T Cell Evolution by Reversion Group", 
+       font.main = c(16),
+       xlab = "Week/Test", 
+       ylab = "Mean CD8+ T cell count (cells/mL)", 
+       ggtheme = theme_gray())
+cdfigS1_rev
+```
+
+### CD8 Movement
+
+```{r cd8calcs}
+diffcd8_rev <- avgcd8_rev %>% 
+   ungroup() %>% 
+   filter(wk %in% c("0", "12")) %>% 
+   mutate(wk = as.numeric(as.character(wk))) %>% 
+   select(grupo, wk, avg) %>% 
+   spread(grupo, value = avg) 
+
+diffcd8_rev <- as.data.frame(t(diffcd8_rev))
+colnames(diffcd8_rev) = c("wk0", "wk12")
+diffcd8_rev <- diffcd8_rev %>% 
+   slice(2:5) %>% 
+   mutate(diff = wk12 - wk0)
+Desc(diffcd8_rev$diff, plotit = FALSE)
+```
+
+## Table S3: Frequency of Resistance in PR and RT Regions (PBMC)
+
+```{r resistfreq}
+resisttot <- sum(pacdata_rev$resist == "R")
+resistgrouptot <- pacdata_rev %>% 
+   filter(resist == "R") %>% 
+   group_by(grupo) %>% 
+   summarize(tot = n()) %>% 
+   mutate(pcttot = 100 * tot/resisttot)
+resistgrouptot
+
+# sum up protease post and sum of trnpos and trnnpos for resistant groups 
+count_resist_group <- pacdata_rev %>% 
+   filter(resist == "R") %>% 
+   select(c(pac:trnnpos, resist), -c(prpre, trnpre, trnnpre,discord)) %>% 
+   mutate(alltr = case_when(
+      trnpos == 0 & trnnpos == 0 ~ 0,
+      trnpos > 1 | trnnpos > 1 ~ 2,
+      trnpos == 1 & trnnpos == 1 ~ 1
+   ))
+# none group (1)
+nonepr <- sum(count_resist_group$prpos[count_resist_group$grupo == 1])
+print(paste("Protease/None =", nonepr))
+nonetr <- sum(count_resist_group$alltr[count_resist_group$grupo == 1])
+print(paste("TR/None =", nonetr))
+
+# Total Group (2)
+totpr <- sum(count_resist_group$prpos[count_resist_group$grupo == 2])
+print(paste("Protease/Total =", totpr))
+tottrtot <- sum(count_resist_group$alltr[count_resist_group$grupo == 2] == 0)
+print(paste("TR/Total Total =", tottrtot))
+tottrnone <- sum(count_resist_group$alltr[count_resist_group$grupo == 2] == 1)
+print(paste("TR/Total None =", tottrnone))
+tottrpart <- sum(count_resist_group$alltr[count_resist_group$grupo == 2] == 2)
+print(paste("TR/Total Partial =", tottrpart))
+
+# Partial Group
+partprtot <- sum(count_resist_group$prpos[count_resist_group$grupo == 3] == 0)
+print(paste("Protease/Partial Total =", partprtot))
+partprnone <- sum(count_resist_group$prpos[count_resist_group$grupo == 3] == 1)
+print(paste("Protease/Partial None =", partprnone))
+parttrtot <- sum(count_resist_group$alltr[count_resist_group$grupo == 3] == 0)
+print(paste("TR/Partial Total =", parttrtot))
+parttrnone <- sum(count_resist_group$alltr[count_resist_group$grupo == 3] == 1)
+print(paste("TR/Partial None =", parttrnone))
+parttrpart <- sum(count_resist_group$alltr[count_resist_group$grupo == 3] == 2)
+print(paste("TR/Partial Partial =", parttrpart))
+100 *19/resisttot
+100 * 17/resisttot
+100 * 13/resisttot
+100 * 5/resisttot
+100 * 18/resisttot
+```
+
+## Reversion Groups by Fraction and Region
+Work with resistant cases only (rev_group = 1 , 2, or 3
+)
+```{r revgrp_frac_reg}
+
+```
+

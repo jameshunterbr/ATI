@@ -1,0 +1,99 @@
+---
+title: "CD4 Evolution Under STI"
+author: "James Hunter"
+date: "February 3, 2015"
+output: pdf_document
+---
+
+Set up CD4 for graphing using pacdat2
+
+```{r set up cd4 data}
+# create vldata subset
+cd4set <- subset(pacdat2, type == "cd4", select = c(pac, resist, value, wk))
+
+# create VL mean for each patient
+summ_cd4 <- by(cd4set$value, cd4set$pac, summary)
+summ_cd4wk <- by(cd4set$value, cd4set$wk, summary)
+mean_cd4 <- by(cd4set$value, cd4set$pac, mean)
+summary(mean_cd4)
+summ_cd4wk
+```
+
+
+# Show boxplot of mean_cd4
+```{r mean_vl}
+require(ggplot2)
+cd4box <- ggplot(cd4set, aes(x = factor(wk), y = value))
+cd4box <- cd4box + geom_boxplot()
+cd4box <- cd4box + stat_summary(fun.y="mean", geom="point", shape=23, size=3, fill="white")
+cd4box <- cd4box + xlab("Week") + ylab("CD4 per ml")
+cd4box <- cd4box + scale_y_continuous(breaks = seq(0, 650, by = 50))
+cd4box <- cd4box + ggtitle("CD4 + Distribution by Week")
+cd4box
+```
+
+The boxplot clearly shows the steady decrease in median CD4+ count across the patients as the number of weeks since the stopping of ART therapy increases. 
+
+Difference between Patient Classes as Resistant and Non-Resistant
+-----------------------------------------------------------------
+
+```{r}
+library(DescTools)
+Desc(cd4set$value ~ cd4set$resist, plotit = TRUE)
+by(cd4set$value, cd4set$resist, summary)
+cd4rnr_mean <-  by(cd4set$value, cd4set$resist, mean)
+
+cd4rnr <- ggplot(cd4set, aes(x = resist, y = value))
+cd4rnr <- cd4rnr + geom_boxplot()
+cd4rnr <- cd4rnr + stat_summary(fun.y="mean", geom="point", shape=23, size=3, fill="white")
+cd4rnr <- cd4rnr + xlab("Resist/Non-Resistant") + ylab("viral copies per ml")
+cd4rnr <- cd4rnr + scale_y_continuous(breaks = seq(0, 650, by = 50))
+cd4rnr <- cd4rnr + ggtitle("CD4+ Count Distribution\nResistant vs. Non-Resistant")
+cd4rnr
+```
+
+Line Graph of CD4+ Count: Resistant vs. Non-Resistant
+----------------------------------------------------
+
+```{r line}
+cd4rnrmean <- data.frame(resist = c("NR", "R"), 
+                 val = c(mean(cd4set$value[cd4set$resist == "NR"]), 
+                         mean(cd4set$value[cd4set$resist == "R"])))
+cd4rnrm <- ggplot(cd4rnrmean, aes(x = resist, y = val, group = 1))
+cd4rnrm <- cd4rnrm + geom_bar(stat = "identity", width = 0.5)
+cd4rnrm <- cd4rnrm + xlab("Non-Resistant/Resistant") + ylab("mean CD4+ per ml")
+cd4rnrm <- cd4rnrm + scale_y_continuous(breaks = seq(0, 650, by = 50))
+cd4rnrm <- cd4rnrm + ggtitle("CD4+ Count Means\nResistant vs. Non-Resistant")
+cd4rnrm <- cd4rnrm + geom_text(aes(label = round(val,2)), vjust = -0.5)
+cd4rnrm
+```
+
+Graph of Means of Resistant vs. Non-Resistant by Week
+-----------------------------------------------------
+```{r}
+# set up database with week, resist and NA for values
+cd4rnrmeanwk <- data.frame(week = c(0, 0, 4, 4, 8, 8, 12, 12),
+                          resist = rep(c("NR", "R"), 4), 
+                          val = rep(NA, 8))
+
+# add values to the database
+for (i in 1:8) {
+   wk <- cd4rnrmeanwk[i,1]
+   res <- cd4rnrmeanwk[i,2]
+   if (res == "NR") {
+      cd4rnrmeanwk$val[i] <- mean(cd4set$value[cd4set$resist == "NR" & cd4set$wk == wk])
+   }else {
+      cd4rnrmeanwk$val[i] <- mean(cd4set$value[cd4set$resist == "R" & cd4set$wk == wk])   }
+}
+# Build plot                         
+cd4rnrmwk <- ggplot(cd4rnrmeanwk, aes(x = week, y = val, 
+                  linetype = resist, colour = resist))
+cd4rnrmwk <- cd4rnrmwk + scale_colour_brewer(palette="Set1")
+cd4rnrmwk <- cd4rnrmwk + geom_line(size = 2) + geom_point(size = 4,
+                       colour = "black", fill = "black")
+cd4rnrmwk <- cd4rnrmwk + xlab("Week") + ylab("mean CD4+ count per ml")
+cd4rnrmwk <- cd4rnrmwk + scale_x_continuous(breaks = c(0, 4, 8, 12))
+cd4rnrmwk <- cd4rnrmwk + ggtitle("CD4+ Means by Week\nResistant vs. Non-Resistant")
+cd4rnrmwk
+```
+

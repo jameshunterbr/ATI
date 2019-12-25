@@ -1,0 +1,141 @@
+---
+title: "Revised Survival Analysis"
+author: "James R. Hunter"
+date: "08/08/2018"
+output: 
+  pdf_document:
+    fig_height: 7
+    fig_width: 7
+  html_document:
+    fig_height: 3
+    fig_width: 5
+  word_document:
+    fig_height: 3
+    fig_width: 5
+version: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## What This File Contains
+
+Given the realization that the survival functions were being calculated on the basis of all the cases and all the weeks instead of just the weeks and cases for each individual type (codon), this version uses the `mut_survival()` function to correct for this and create as a base for each codon's resistant mutation survival (or reversion to wild type) only the total number of cases that show the mutation at baseline.
+
+The `mut_survival()` function is at version 2, which ensures that there is one event or censoring for each case for each mutations. It individually determines the number of cases per mutation.
+
+It also calls the `gg_survival()` function to print produce graphs that might be desired for the analysis or the article.
+
+## Load Packages and Functions
+
+```{r load_pack}
+suppressMessages(library(tidyverse))
+source("mutation_survival_v2.R") #mut_survival
+source("survival_graph.R") #gg_survival
+```
+
+## Set up Variables with Mutations by Drug Class
+
+```{r drug_class}
+nrti_muts <- c("tr41",  "tr210", "tr215", "tr67",  "tr70",  "tr219", "tr184")
+nnrti_muts <- c("tr103", "tr181", "tr190")
+tam1 <- c("tr41", "tr210", "tr215")
+tam2 <- c("tr67", "tr70", "tr219")
+mutnamespr <- c("pr10", "pr20", "pr24", "pr36", "pr46", "pr48", "pr53", "pr54", 
+                "pr63", "pr71", "pr73", "pr77", "pr82", "pr84", "pr88", "pr89", 
+                "pr90", "pr93")
+```
+
+## Run PR Mutations
+
+```{r prmuts}
+for (i in 1:length(mutnamespr)) mut_survival(mutnamespr[i])
+```
+
+## Run NRTI Mutations
+
+```{r nrtimuts}
+for (i in 1:length(nrti_muts)) mut_survival(nrti_muts[i])
+```
+
+## Run NNRTI Mutations
+
+```{r nnrtimuts}
+for (i in 1:length(nnrti_muts)) mut_survival(nnrti_muts[i])
+```
+
+## Graph of NNRTI Mutations
+
+```{r nnrti_gr}
+nnrti <- rbind(readRDS("surv_data_tr103.rds"), readRDS("surv_data_tr181.rds"),
+               readRDS("surv_data_tr190.rds"))
+nnrti_surv_data <- survival::Surv(time = nnrti$wk, event = nnrti$wt)
+nnrti_fit <- survival::survfit(nnrti_surv_data ~ type, data = nnrti)
+summary(nnrti_fit)
+gg_nnrti <- gg_survival("NNRTI Codons", nnrti_fit, nnrti)
+gg_nnrti
+```
+
+## Graph of TAM1 Mutations
+
+```{r tam1_gr}
+tam1 <- rbind(readRDS("surv_data_tr41.rds"), readRDS("surv_data_tr210.rds"),
+               readRDS("surv_data_tr215.rds"))
+tam1_surv_data <- survival::Surv(time = tam1$wk, event = tam1$wt)
+tam1_fit <- survival::survfit(tam1_surv_data ~ type, data = tam1)
+summary(tam1_fit)
+gg_tam1 <- gg_survival("TAM1 Codons", tam1_fit, tam1)
+gg_tam1
+```
+
+## Graph of TAM2 Mutations
+
+```{r tam2_gr}
+tam2 <- rbind(readRDS("surv_data_tr67.rds"), readRDS("surv_data_tr70.rds"),
+               readRDS("surv_data_tr219.rds"))
+tam2_surv_data <- survival::Surv(time = tam2$wk, event = tam2$wt)
+tam2_fit <- survival::survfit(tam2_surv_data ~ type, data = tam2)
+summary(tam2_fit)
+gg_tam2 <- gg_survival("TAM1 Codons", tam2_fit, tam2)
+gg_tam2
+```
+
+## Graph of tr184
+
+```{r grtr184}
+tr184 <- readRDS("surv_data_tr184.rds")
+tr184_surv_data <- survival::Surv(time = tr184$wk, event = tr184$wt)
+tr184_fit <- survival::survfit(tr184_surv_data ~ type, data = tr184)
+summary(tr184_fit)
+gg_tr184 <- gg_survival("tr184", tr184_fit, tr184)
+gg_tr184
+```
+
+
+
+## Graph of PR Codons that Increase Resistance during Study Period (77, 88)
+
+```{r pr7788_gr}
+pr7788 <- rbind(readRDS("surv_data_pr77.rds"), readRDS("surv_data_pr88.rds"))
+pr7788_surv_data <- survival::Surv(time = pr7788$wk, event = pr7788$wt)
+pr7788_fit <- survival::survfit(pr7788_surv_data ~ type, data = pr7788)
+summary(pr7788_fit)
+gg_pr7788 <- gg_survival("pr77 & pr88", pr7788_fit, pr7788)
+gg_pr7788
+```
+
+## Graph of PR Codons to Compare with Regression (46, 90)
+
+```{r pr4690_gr}
+pr4690 <- rbind(readRDS("surv_data_pr46.rds"), readRDS("surv_data_pr90.rds"))
+pr4690_surv_data <- survival::Surv(time = pr4690$wk, event = pr4690$wt)
+pr4690_fit <- survival::survfit(pr4690_surv_data ~ type, data = pr4690)
+summary(pr4690_fit)
+gg_pr4690 <- gg_survival("pr46 & pr90", pr4690_fit, pr4690)
+gg_pr4690
+
+```
+
+
+

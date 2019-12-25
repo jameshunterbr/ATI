@@ -1,0 +1,477 @@
+---
+title: "Cell Activation Analysis Final Thesis"
+output:
+  pdf_document: default
+date: "01 February 2019"
+---
+
+## Load Packages 
+
+```{r loadpack, message=FALSE}
+librarian::shelf(tidyverse, scales, DescTools, ggpubr, gmodels, 
+                 knitr, kableExtra, broom, haven, readxl, RColorBrewer)
+```
+
+## read in cell activation data
+
+```{r get_cell_act}
+cell_act <- readRDS("cell_act_final.rds")
+
+```
+
+
+## Summary data of groups by resistance markers on cd8+ T cells -- not adjusted for cv
+
+```{r group_act}
+group_act <- cell_act %>% 
+   group_by(group, visit) %>% 
+   summarise(cd38_hladr_mean = mean(cd8_cd38_hladr_pct, na.rm = TRUE),
+             cd38_hladr_sd = sd(cd8_cd38_hladr_pct, na.rm = TRUE),
+             cd38_mean = mean(cd38, na.rm = TRUE),
+             cd38_sd = sd(cd38, na.rm = TRUE),
+             hla_dr_mean = mean(hla_dr, na.rm = TRUE),
+             hla_dr_sd = sd(hla_dr, na.rm = TRUE))
+kable(group_act)
+```
+
+## Graph of Difference among Reversion Groups for %CD38+ HLA-DR+ CD8 T-cells
+
+```{r gg_cd38hla, message = FALSE, warning = FALSE}
+
+my_comparisons <- list(c("none", "total"), c("total", "partial"))
+gg_box_cd38hla <- cell_act %>% 
+   mutate(visit = case_when(
+      visit == 1 ~ "baseline",
+      visit == 2 ~ "week 4",
+      visit == 3 ~ "week 8",
+      visit == 4 ~ "week 12"
+   )) %>% 
+   mutate(visit = factor(visit, levels = c("baseline", "week 4", "week 8", 
+                                           "week 12"))) %>% 
+   ggboxplot(x = "group", y = "cd8_cd38_hladr_pct",
+             color = "group", 
+             palette = "uchicago",
+             title = "",
+             xlab = "Reversion Group", 
+             ylab = "%CD38+ HLA-DR+ CD8 T-cells",
+             add = "jitter",
+             legend = "none",
+             ggtheme = theme_grey())
+gg_box_cd38hla <- gg_box_cd38hla + stat_compare_means(comparisons = my_comparisons, 
+                                    label = "p.format")
+## Log graph for 2nd panel of graph
+
+gg_box_log_cd38hla <- cell_act %>% 
+   mutate(visit = case_when(
+      visit == 1 ~ "baseline",
+      visit == 2 ~ "week 4",
+      visit == 3 ~ "week 8",
+      visit == 4 ~ "week 12"
+   )) %>% 
+   mutate(visit = factor(visit, levels = c("baseline", "week 4", "week 8", 
+                                           "week 12")),
+          y_correct = cd8_cd38_hladr_pct/log) %>% 
+   ggboxplot(x = "group", y = "y_correct",
+             color = "group", 
+             palette = "uchicago",
+             title = "",
+             xlab = "", 
+             ylab = "",
+             add = "jitter",
+             legend = "none",
+             ggtheme = theme_grey())
+gg_box_log_cd38hla <- gg_box_log_cd38hla + stat_compare_means(comparisons = my_comparisons, 
+                                    label = "p.format")
+
+gg_box_CA_plots <- ggarrange(gg_box_cd38hla, gg_box_log_cd38hla,  
+                  ncol = 2, nrow = 1,
+                  labels = c("Uncorrected", "Corrected"),
+                  vjust = 2.5)
+
+gg_box_CA_plots
+
+saveRDS(gg_box_CA_plots, file = "gg_box_CA_plots.rds")
+```
+
+## Correlation between Viral Load and Cell Activation
+
+### Figure 
+
+```{r corr_cv_cell_act}
+
+gg_cv_cell_act <- cell_act %>% 
+   filter_at(vars(c(cd38, log)), all_vars(!is.na(.))) %>% 
+   ggscatter(x = "log", y = "cd38", 
+          add = "reg.line", jitter = TRUE, conf.int = TRUE, 
+          palette = "aaas",
+          xlab = "Viral Load (log10 copies/mL)",
+          ylab = "CD38 CD8+ T cells Count",  
+          cor.coef = TRUE,
+          ggtheme = theme_grey(), repel = TRUE, 
+#          cor.coef.coord = c(4.5, 310),
+          cor.coeff.args = list(method = "spearman"))
+gg_cv_cell_act
+   
+## cell activation with CD4+
+
+gg_cd4_cell_act <- cell_act %>% 
+   filter_at(vars(c(cd38, cd4_total)), all_vars(!is.na(.))) %>% 
+   ggscatter(y = "cd4_total", x = "log", 
+          add = "reg.line", jitter = TRUE, conf.int = TRUE, 
+          palette = "aaas",
+          xlab = "Viral Load (log10 copies/mL)",
+          ylab = "CD4+ T Cell Count / Cells per mL", 
+          cor.coef = TRUE,
+          ggtheme = theme_grey(), repel = TRUE, 
+#          cor.coef.coord = c(0, 6.5),
+          cor.coeff.args = list(method = "spearman"))
+gg_cd4_cell_act
+
+## join two plots together
+
+cd38_plots <- ggarrange(gg_cv_cell_act, gg_cd4_cell_act,  
+                  ncol = 2, nrow = 1,
+                  labels = c("Cell Activation", "CD4+"))
+cd38_plots
+
+```
+
+### Correlation of cd38 with viral load and cd4
+
+```{r}
+cor(cell_act[,c("log", "cd4_total", "cd38")], method = "spearman", 
+    use = "complete.obs")
+```
+
+### Regression of cd38 against viral load
+
+```{r cd38_reg}
+
+cd38_vl <- lm(cd38 ~ log, data = cell_act)
+summary(cd38_vl)
+
+```
+
+### Regression of cd38 against CD4+
+
+```{r cd38_reg_cd4}
+
+cd4_cd38 <- lm(cd4_total ~ cd38, data = cell_act)
+summary(cd4_cd38)
+
+```
+
+## Relation of HLA-DR with CV and CD4+
+
+```{r hla}
+cor(cell_act[,c("log", "cd4_total", "hla_dr")], method = "spearman", 
+    use = "complete.obs")
+
+hla_vl <- lm(hla_dr ~ log, data = cell_act)
+summary(hla_vl)
+
+cd4_hla <- lm(cd4_total ~ hla_dr, data = cell_act)
+summary(cd4_hla)
+
+```
+
+## Relation of Joint % on CD8+ with CV and CD4+
+
+```{r joint}
+cor(cell_act[,c("log", "cd4_total", "cd8_cd38_hladr_pct")], method = "spearman", 
+    use = "complete.obs")
+
+joint_vl <- lm(cd8_cd38_hladr_pct ~ log, data = cell_act)
+summary(joint_vl)
+
+cd4_joint <- lm(cd4_total ~ cd8_cd38_hladr_pct, data = cell_act)
+summary(cd4_joint)
+
+```
+
+
+## Models of CD4 Decrease in Relation to Viral Load and/or CD38 increase
+
+```{r models}
+# Create data frame and remove cases with NA in 
+res_pacs <- cell_act %>% 
+   filter(!is.na(cd4_total) & !is.na(log) & !is.na(cd38))
+
+## Model 1 - just viral load
+mod1 <- lm(cd4_total ~ log, data = res_pacs)
+
+## Model 2 - just cd38
+
+mod2 <-  lm(cd4_total ~ cd38, data = res_pacs)
+
+## Model 3 - both viral load and cd 38
+
+mod3 <- lm(cd4_total ~ log + cd38, data = res_pacs)
+
+## Model 4 -- both factors + interaction
+
+mod4 <- lm(cd4_total ~ log + cd38 + log:cd38, data = res_pacs)
+
+## Model 5 - joint factors 
+
+mod5 <-  lm(cd4_total ~ cd8_cd38_hladr_pct, data = res_pacs)
+
+## Model 6 -- joint + viral load
+
+mod6 <- lm(cd4_total ~ log + cd8_cd38_hladr_pct, data = res_pacs)
+#
+# group together the models
+### coefficients data frame
+regcoef <- tidy(mod1) %>% 
+   add_column(model = "logcv", .before = "term" )
+regcoef <- rbind(regcoef, tidy(mod2) %>% 
+   add_column(model = "cd38", .before = "term"))
+regcoef <- rbind(regcoef, tidy(mod3) %>% 
+   add_column(model = "both", .before = "term"))
+regcoef <- rbind(regcoef, tidy(mod4) %>% 
+   add_column(model = "inter", .before = "term"))
+regcoef <- rbind(regcoef, tidy(mod5) %>% 
+   add_column(model = "cd38+HLA-DR+", .before = "term"))
+regcoef <- rbind(regcoef, tidy(mod6) %>% 
+   add_column(model = "cd38+HLA-DR+/Log", .before = "term"))
+
+### summary data frame
+regsumm <- glance(mod1) %>% 
+   add_column(model = "logcv", .before = "r.squared" )
+regsumm <- rbind(regsumm, glance(mod2) %>% 
+   add_column(model = "cd38", .before = "r.squared"))
+regsumm <- rbind(regsumm, glance(mod3) %>% 
+   add_column(model = "both", .before = "r.squared"))
+regsumm <- rbind(regsumm, glance(mod4) %>% 
+   add_column(model = "inter", .before = "r.squared"))
+regsumm <- rbind(regsumm, glance(mod5) %>% 
+   add_column(model = "cd38+HLA-DR+", .before = "r.squared"))
+regsumm <- rbind(regsumm, glance(mod6) %>% 
+   add_column(model = "cd38+HLA-DR+/Log", .before = "r.squared"))
+regsumm <- regsumm %>% select(1:9) # reduce num of measures
+
+kable(regcoef)
+kable(regsumm)
+
+```
+
+## Control Cell Activation by Viral Load
+
+Calculate a new index of cell activation (`cd8_cd38_hladr_pct`) divided by log viral load. Measure levels of this per group and compare to cd4+ levels by group
+
+```{r cell_act_control}
+cell_act <- cell_act %>% 
+   mutate(act_cv = cd8_cd38_hladr_pct/log)
+Desc(cell_act$act_cv, plotit = TRUE)
+Desc(act_cv ~ group, data = cell_act, plotit = TRUE)
+```
+
+## Graph of act_cv by group
+
+```{r gg_actcv, message = FALSE, warning = FALSE}
+gg_actcv <- cell_act %>% 
+   ggboxplot(x = "group", y = "act_cv", 
+             color = "group", 
+             palette = "aaas",
+             title = "Cellular Activation by Reversion Group",
+             subtitle = "Controlled for by Viral Load",
+             xlab = "Reversion Group", 
+             ylab = "Activation/Viral Load Index",
+             add = "jitter",
+             legend = "none",
+             ggtheme = theme_grey())
+my_comparisons <- list(c("none", "total"), c("total", "partial"))
+gg_actcv + stat_compare_means(comparisons = my_comparisons, 
+                                    label = "p.format")
+saveRDS(gg_actcv, file = "gg_box_actcv.rds")   
+
+```
+
+```{r gg_actcv_cd4, message = FALSE, warning = FALSE}
+gg_actcv_cd4 <- cell_act %>% 
+   ggscatter(y = "cd4_total", x = "act_cv", 
+             color = "group", 
+             palette = "aaas",
+             add = "reg.line", 
+             title = "CD4+ T-Cell Levels vs. Cellular Activation",
+             subtitle = "Controlled for by Viral Load",
+             xlab = "Activation/Viral Load Index", 
+             ylab = "CD4+ T-cell count (cells/mL)",
+             cor.coef.coord = c(4.5, 310),
+             cor.coeff.args = list(method = "spearman"),
+             legend = "bottom",
+             ggtheme = theme_grey())
+gg_actcv_cd4
+
+```
+
+## Regressions by Group of CD4 vs. Cellular Activation Index
+
+```{r reg_cd4_cell_act_ind}
+# all resistants patients
+reg_all <- lm(cd4_total ~ act_cv, data = cell_act)
+summary(reg_all)
+
+# group = none
+reg_none <- lm(cd4_total ~ act_cv, data = cell_act, 
+               subset = (cell_act$group == "none"))
+summary(reg_none)
+
+# group = total
+reg_total <- lm(cd4_total ~ act_cv, data = cell_act, 
+               subset = (cell_act$group == "total"))
+summary(reg_total)
+
+# group = partial
+reg_part <- lm(cd4_total ~ act_cv, data = cell_act, 
+               subset = (cell_act$group == "partial"))
+summary(reg_part)
+
+reg_activ <- tidy(reg_all) %>% 
+   add_column(model = "all resistant", .before = "term")
+
+reg_activ <- rbind(reg_activ, tidy(reg_none) %>% 
+   add_column(model = "no reversion", .before = "term"))
+
+reg_activ <- rbind(reg_activ, tidy(reg_total) %>% 
+   add_column(model = "total reversion", .before = "term"))
+
+reg_activ <- rbind(reg_activ, tidy(reg_part) %>% 
+   add_column(model = "partial reversion", .before = "term"))
+
+regsumm_activ <- glance(reg_all) %>% 
+   add_column(model = "all resistant", .before = "r.squared" )
+
+regsumm_activ <- rbind(regsumm_activ, glance(reg_none) %>% 
+   add_column(model = "no reversion", .before = "r.squared"))
+
+regsumm_activ <- rbind(regsumm_activ, glance(reg_total) %>% 
+   add_column(model = "total reversion", .before = "r.squared"))
+
+regsumm_activ <- rbind(regsumm_activ, glance(reg_part) %>% 
+   add_column(model = "partial reversion", .before = "r.squared"))
+
+kable(reg_activ)
+regsumm_activ %>% 
+   select(-c(sigma, df, logLik, BIC, deviance, df.residual)) %>% 
+   kable()
+```
+
+## Cellular activation by week by group
+
+```{r cell_act_wk_group}
+options(scipen = 5)
+
+group_wk_act <- cell_act %>% 
+    mutate(visit = case_when(
+      visit == 1 ~ "baseline",
+      visit == 2 ~ "week 4",
+      visit == 3 ~ "week 8",
+      visit == 4 ~ "week 12"
+    )) %>% 
+   select(subject:visit, group, log, cd8_cd38_hladr_pct) %>% 
+   mutate(act_cv = cd8_cd38_hladr_pct/log) %>%  # control for carga viral
+   mutate(visit = factor(visit, levels = c("baseline", "week 4", "week 8", 
+                                          "week 12")))  
+group_wk_act_summ <- group_wk_act %>% 
+   group_by(group, visit) %>% 
+   summarise(cd38_hladr_mean = mean(cd8_cd38_hladr_pct, na.rm = TRUE),
+             cd38_hladr_sd = sd(cd8_cd38_hladr_pct, na.rm = TRUE),
+             corr_mean = mean(act_cv, na.rm = TRUE),  # corrected for cv
+             corr_hladr_sd = sd(act_cv, na.rm = TRUE)) # corrected for cv
+   
+group_wk_act_summ %>% 
+   select(group, visit, cd38_hladr_mean, corr_mean) %>%
+   filter(group != "partial") %>% 
+   kable(booktabs = TRUE, col.names = c("Group", "Visit", "Raw Mean", 
+                                        "Corrected Mean"), 
+   caption = "Mean Activation Evolution by Group and Visit")  
+```
+
+## Graphs of Evolution of Activation based on Corrected Values
+
+```{r gg_evolution_act, warning = FALSE, message = FALSE}
+# my_comparisons <- list(c("baseline", "week 12"))
+gg_group_wk_act <- group_wk_act %>% 
+   filter(group != "partial") %>% #(make it total vs. none)
+   ggerrorplot(., x = "visit", y = "act_cv", 
+               desc_stat = "mean_se",
+               color = "black",
+               palette = "uchicago",
+               title = "Cell Activation Evolution in None and Total Reversion Groups",
+               subtitle = "Activation Measure Corrected for Viral Load",
+               xlab = "Visit",
+               ylab = "Activation/Viral Load Index",
+               add = "jitter",
+               add.params = list(color = "darkgray"),
+               facet.by = "group",
+#               panel.labs = list(rev = c("No Reversion", "Total Reversion")),
+               ggtheme = theme_gray())
+#gg_group_wk_act <- gg_group_wk_act + stat_compare_means(comparisons = 
+#                                                           my_comparisons)
+gg_group_wk_act
+```
+
+## Graphs of Evolution of Activation based on RAw Values
+
+```{r gg_evolution_act_raw, warning = FALSE, message = FALSE}
+# my_comparisons <- list(c("baseline", "week 12"))
+gg_group_wk_act_r <- group_wk_act %>% 
+   filter(group != "partial") %>% #(make it total vs. none)
+   ggerrorplot(., x = "visit", y = "cd8_cd38_hladr_pct", 
+               desc_stat = "mean_se",
+               color = "black",
+               palette = "uchicago",
+               title = "Cell Activation Evolution in None and Total Reversion Groups",
+#               subtitle = "Activation Measure Corrected for Viral Load",
+               xlab = "Visit",
+               ylab = "CD8 + with CD38 and HLA-DR",
+               add = "jitter",
+               add.params = list(color = "darkgray"),
+               facet.by = "group",
+#               panel.labs = list(rev = c("No Reversion", "Total Reversion")),
+               ggtheme = theme_gray())
+#gg_group_wk_act <- gg_group_wk_act + stat_compare_means(comparisons = 
+#                                                           my_comparisons)
+gg_group_wk_act_r
+```
+
+
+## statistical difference between None and Total in terms of Difference Week 12 - baseline
+
+```{r stat_diff_wk12_bl}
+pacs <- unique(group_wk_act$subject)
+
+diffs <- tibble(subject = character(),
+                group = factor(),
+                raw_diff = numeric(),
+                corr_diff = numeric())
+
+for (i in 1:length(pacs)) {
+   raw_diff <- group_wk_act$cd8_cd38_hladr_pct[group_wk_act$subject == pacs[i] &
+                                              group_wk_act$visit == "week 12"] - 
+               group_wk_act$cd8_cd38_hladr_pct[group_wk_act$subject == pacs[i] &
+                                              group_wk_act$visit == "baseline"]
+   corr_diff <- group_wk_act$act_cv[group_wk_act$subject == pacs[i] &
+                                              group_wk_act$visit == "week 12"] - 
+               group_wk_act$act_cv[group_wk_act$subject == pacs[i] &
+                                              group_wk_act$visit == "baseline"]
+   diffs <- add_row(diffs, subject = pacs[i],
+                    group = group_wk_act$group[group_wk_act$subject == pacs[i] &
+                                                  group_wk_act$visit == "week 12"],
+                    raw_diff = raw_diff,
+                    corr_diff = corr_diff)
+} 
+
+diffs <- diffs %>% 
+   filter(group != "partial") %>% 
+   droplevels(.)
+
+diffs
+
+# Do the comparison raw data
+
+Desc(raw_diff ~ group, data = diffs)
+Desc(corr_diff ~ group, data = diffs)
+```
+

@@ -1,0 +1,636 @@
+---
+title: "Comparison of Regression and Survival"
+author: "James R. Hunter"
+date: "01 August 2018"
+output: 
+  pdf_document:
+    fig_height: 7
+    fig_width: 7
+  html_document:
+    fig_height: 3
+    fig_width: 5
+  word_document:
+    fig_height: 3
+    fig_width: 5
+version: 4
+---
+
+```{r, setup, include=FALSE}
+require(mosaic)   # Load additional packages here
+suppressMessages(library(tidyverse))
+suppressPackageStartupMessages(library(DescTools))
+suppressPackageStartupMessages(library(knitr))
+suppressPackageStartupMessages(library(RColorBrewer))
+suppressPackageStartupMessages(library(seqinr))
+suppressPackageStartupMessages(library(ggpubr))
+suppressPackageStartupMessages(library(kableExtra))
+suppressPackageStartupMessages(library(Biostrings))
+library(survival)
+library(survminer)
+library(stringr)
+options(scipen = 1)
+  
+knitr::opts_chunk$set(
+  tidy=FALSE,     # display code as typed
+  echo = FALSE,   # don't show programming
+  size="small")   # slightly smaller font for code
+
+rev_groups <- readRDS("rev_groups.rds")
+pacs_resist <- rev_groups  %>% 
+   filter(rev_group != 0)
+pacs_resist <- as.numeric(pacs_resist$n)
+rev_groups <- rev_groups %>% 
+   filter(rev_group != 0) %>% 
+   select(rev_group)
+load("prpbm2.RData")
+load("trpbm2.RData")
+```
+
+## Regression -- PI 46 and 90 Reversion Time Plots
+
+### Load prpbmc mutations
+
+```{r loadprmuts, echo = FALSE}
+prpbmuts_rev <- read_rds("prpbmuts_rev.rds")
+```
+
+### Create Function to Calculate regression and make plot
+
+```{r fig5funct, echo = FALSE}
+drawPRmut <- function(pimut){
+# Calculate regression equation
+   fit <- lm(num ~ wk, data = prpbmuts_rev[prpbmuts_rev$type == pimut,])
+   intercept <- unname(format(coef(fit)[1], digits = 3))
+   slope <- unname(format(coef(fit)[2], digits = 3))
+   rsq <- unname(format(summary(fit)$r.squared, digits = 3))
+   eqn <- as.character(as.expression(
+      substitute(italic(y) == a + b * italic(x) * "," ~~ italic(r)^2 ~ "=" ~ r2,
+        list(a = intercept,
+             b = slope,
+             r2 = rsq   ))))
+# Draw graph
+   title <- paste(pimut)
+   g1 <- ggplot(prpbmuts_rev[prpbmuts_rev$type == pimut,], aes(x = wk, y = num)) 
+   g1 <- g1 + ggtitle(title)
+   g1 <- g1 + xlab("Week") + ylab("Patients with Mutation")
+   g1 <- g1 + geom_point()
+   g1 <- g1 + geom_smooth(method = "lm")
+   g1 <- g1 + scale_y_continuous(breaks = seq(from = 0, to = 40, by = 5))
+   g1 <- g1 + scale_x_continuous(breaks = c(4, 8, 12)) 
+   g1 <- g1 + annotate("text", x = 5, y = 2.5, label = eqn, parse = TRUE)
+}
+```
+
+### Draw pr46 and pr90
+
+```{r draw4690, echo = FALSE}
+gr46 <- drawPRmut("pr46")
+gr90 <- drawPRmut("pr90")
+fig5 <- ggarrange(gr46, gr90, ncol = 1, nrow = 2, align = "v")
+fig5
+
+```
+
+## Survival Version of Protease Inhibitor Mutations
+
+
+```{r protease}
+mutnamespr <- c("pr10", "pr20", "pr24", "pr30", "pr32", "pr36", "pr46", "pr47",
+              "pr48", "pr50", "pr53", "pr54", "pr63", "pr71", "pr73", "pr77",
+              "pr82", "pr84", "pr88", "pr89", "pr90", "pr93")
+prmuts <- prpbm2 %>% 
+      filter(type %in% mutnamespr & n %in% pacs_resist) %>% 
+      mutate(wt = ifelse(value == 1, 0, 1)) 
+surv_pr <- Surv(time = prmuts$wk, event = prmuts$wt)
+fit_all_pr <- survfit(surv_pr ~ 1, data = prmuts)
+fit_each_pr <- survfit(surv_pr ~ type, data = prmuts)
+#summary(fit_all_pr)
+summary(fit_each_pr)
+title <- paste0("Conversion to Wild Type for Protease Codons")   
+ggsurvplot(fit_all_pr, data = prmuts,
+     palette = "aaas",
+     break.x.by = 4,
+     legend.title = "Codon",
+#     pval = TRUE,
+     xlab = "Weeks",
+     ylab = "Mutation Retention Probability",
+     title = title,
+     ggtheme = theme_gray())
+
+```
+
+### Show Contrast between Best and Worst Codons (89 & 63)
+
+```{r bestworstpr}
+title <- paste0("Conversion to Wild Type for Codons pr63 and pr89") 
+bestworst <- prpbm2 %>% 
+      filter(type %in% c("pr63", "pr89") & n %in% pacs_resist) %>% 
+      mutate(wt = ifelse(value == 1, 0, 1)) 
+surv_pr_bw <- Surv(time = bestworst$wk, event = bestworst$wt)
+fit_pr_bw <- survfit(surv_pr_bw ~ type, data = bestworst)
+ggsurvplot(fit_pr_bw, data = bestworst,
+     palette = "aaas",
+     break.x.by = 4,
+     legend.title = "Codon",
+     pval = TRUE,
+     xlab = "Weeks",
+     ylab = "Mutation Retention Probability",
+     title = title,
+     ggtheme = theme_gray())
+```
+
+### Show contrast between pr46 and pr90 in Survival Analysis
+
+```{r pr4690_surv}
+title <- paste0("Conversion to Wild Type for Codons pr46 and pr90") 
+pr4690 <- prpbm2 %>% 
+      filter(type %in% c("pr46", "pr90") & n %in% pacs_resist) %>% 
+      mutate(wt = ifelse(value == 1, 0, 1)) 
+surv_pr_bw <- Surv(time = pr4690$wk, event = pr4690$wt)
+fit_pr_bw <- survfit(surv_pr_bw ~ type, data = pr4690)
+ggsurvplot(fit_pr_bw, data = pr4690,
+     palette = "aaas",
+     break.x.by = 4,
+     legend.title = "Codon",
+     pval = TRUE,
+     xlab = "Weeks",
+     ylab = "Mutation Retention Probability",
+     title = title,
+     ggtheme = theme_gray())
+```
+
+## Regression NRTIs -- Compare tr184 and TAMS
+
+Using the data from Table 7 in the paper
+
+```{r mutsxls, echo = FALSE}
+trpbmuts_rev <- read_rds("trpbmuts_rev.rds")
+trwksto0 <- read_rds("trweeksto0.rds")
+nrti_muts <- c("tr41",  "tr210", "tr215", "tr67",  "tr70",  "tr219", "tr184")
+nnrti_muts <- c("tr103", "tr181", "tr190")
+tam1 <- c("tr41", "tr210", "tr215")
+tam2 <- c("tr67", "tr70", "tr219")
+nrtis <- trwksto0 %>%
+   filter(Mutation %in% nrti_muts) %>% 
+   mutate(ARVType = case_when(
+      Mutation %in% tam1 ~ "NRTI - TAM 1",
+      Mutation %in% tam2 ~ "NRTI - TAM 2",
+      Mutation == "tr184" ~ "NRTI - tr184"
+   ))
+
+# Graph of weeks to 0
+ggwksto0 <- ggscatter(nrtis, x = "ARVType", y = "Weeks",
+          color = "ARVType",
+          palette = "aaas",
+          mean.point = TRUE,
+          title = "Weeks to 0 Patients by NRTI Mutation Type",
+          xlab = "Mutation Type",
+          ylab = "Weeks to 0 Patients",
+          ggtheme = theme_gray()) + 
+          ylim(10, 35)
+
+# ggwksto0
+
+## prepare data to include in Graph in table
+wkssumm <- nrtis %>% 
+   group_by(ARVType) %>% 
+   summarize(n = n(), avgweek = round(mean(Weeks), 3), 
+             avgR2 = round(mean(r2), 3)) 
+body_style <- tbody_style(size = 10)
+tab_wkssumm <- ggtexttable(wkssumm, rows = NULL, 
+                           theme = ttheme(base_style = "mBlackWhite")) 
+
+## Join with graph
+gg_wkssumm <- ggwksto0 +
+   annotation_custom(ggplotGrob(tab_wkssumm), xmin = 0.9, xmax = 2.5,
+                     ymin = 25)
+gg_wkssumm
+
+```
+
+### Regression -- Figures with all NRTIs
+
+#### Divide mutations into NRTI and NNRTI
+
+```{r dividetrs, echo = FALSE}
+nrti_muts <- c("tr41",  "tr210", "tr215", "tr67",  "tr70",  "tr219", "tr184")
+nnrti_muts <- c("tr103", "tr181", "tr190")
+
+trpbmuts <- read_rds("trpbmuts_rev.rds")
+nrti <- trpbmuts %>% 
+   filter(type %in% nrti_muts) %>% 
+   mutate(mut_title = case_when(
+      type %in% c("tr41", "tr210", "tr215") ~ 
+         paste0(type, " - ", "NRTI – TAM 1"),
+      type == "tr184" ~ 
+         paste0(type, " - ", "NRTI - NAM"),
+      TRUE ~ paste(type, "-", "NRTI – TAM 2"))) 
+
+# set up df for all the TAMs for a graph
+allTAMS <- nrti %>% 
+   filter(type != "tr184") %>% 
+   mutate(type = "allTAMs")
+   
+nnrti <- trpbmuts %>% 
+   filter(type %in% nnrti_muts)
+```
+
+### Create Functions to Calculate regression
+
+```{r regfunction}
+drawTRmut <- function(trmut){
+# Calculate regression equation
+   fit <- lm(num ~ wk, data = trpbmuts[trpbmuts$type == trmut,])
+   intercept <- unname(format(coef(fit)[1], digits = 3))
+   slope <- unname(format(coef(fit)[2], digits = 3))
+   rsq <- unname(format(summary(fit)$r.squared, digits = 3))
+   eqn <- as.character(as.expression(
+      substitute(italic(y) == a + b * italic(x) * "," ~~ italic(r)^2 ~ "=" ~ r2,
+        list(a = intercept,
+             b = slope,
+             r2 = rsq
+   ))))
+
+# Draw graph
+   title <- trmut
+   g1 <- ggplot(nrti[nrti$type == trmut,], aes(x = wk, y = num)) 
+   g1 <- g1 + ggtitle(title)
+   g1 <- g1 + xlab("Week") + ylab("Patients with Mutation")
+   g1 <- g1 + geom_point()
+   g1 <- g1 + geom_smooth(method = "lm")
+   g1 <- g1 + scale_y_continuous(breaks = seq(from = 0, to = 40, by = 5))
+   g1 <- g1 + scale_x_continuous(breaks = c(4, 8, 12)) 
+   g1 <- g1 + annotate("text", x = 5, y = 1, label = eqn, parse = TRUE)
+}
+```
+
+
+## Function for all the AllTams Data
+```{r alltamfunction}
+drawalltam <- function(trmut){
+# Calculate regression equation
+   fit <- lm(num ~ wk, data = allTAMS[allTAMS$type == trmut,])
+   intercept <- unname(format(coef(fit)[1], digits = 3))
+   slope <- unname(format(coef(fit)[2], digits = 3))
+   rsq <- unname(format(summary(fit)$r.squared, digits = 3))
+   eqn <- as.character(as.expression(
+      substitute(italic(y) == a + b * italic(x) * "," ~~ italic(r)^2 ~ "=" ~ r2,
+        list(a = intercept,
+             b = slope,
+             r2 = rsq
+   ))))
+
+# Draw graph
+   title <- trmut
+   g1 <- ggplot(allTAMS[allTAMS$type == trmut,], aes(x = wk, y = num)) 
+   g1 <- g1 + ggtitle(title)
+   g1 <- g1 + xlab("Week") + ylab("Patients with Mutation")
+   g1 <- g1 + geom_point()
+   g1 <- g1 + geom_smooth(method = "lm")
+   g1 <- g1 + scale_y_continuous(breaks = seq(from = 0, to = 40, by = 5))
+   g1 <- g1 + scale_x_continuous(breaks = c(4, 8, 12)) 
+   g1 <- g1 + annotate("text", x = 5, y = 1, label = eqn, parse = TRUE)
+}
+```
+
+### Draw RT Mutation Projections
+
+```{r drawfig5}
+fig7a <- drawTRmut(nrti_muts[1])
+fig7b <- drawTRmut(nrti_muts[2])
+fig7c <- drawTRmut(nrti_muts[3])
+fig7d <- drawTRmut(nrti_muts[4])
+fig7e <- drawTRmut(nrti_muts[5])
+fig7f <- drawTRmut(nrti_muts[6])
+fig7g <- drawTRmut(nrti_muts[7])
+fig7h <- drawalltam("allTAMs")
+
+```
+
+## Figure 8 -- NNRTIs 
+
+## Function for NNRTI Data
+```{r nnrtifunction}
+draw_nnrti <- function(trmut){
+# Calculate regression equation
+   fit <- lm(num ~ wk, data = nnrti[nnrti$type == trmut,])
+   intercept <- unname(format(coef(fit)[1], digits = 3))
+   slope <- unname(format(coef(fit)[2], digits = 3))
+   rsq <- unname(format(summary(fit)$r.squared, digits = 3))
+   eqn <- as.character(as.expression(
+      substitute(italic(y) == a + b * italic(x) * "," ~~ italic(r)^2 ~ "=" ~ r2,
+        list(a = intercept,
+             b = slope,
+             r2 = rsq
+   ))))
+
+# Draw graph
+   title <- trmut
+   g1 <- ggplot(nnrti[nnrti$type == trmut,], aes(x = wk, y = num)) 
+   g1 <- g1 + ggtitle(title)
+   g1 <- g1 + xlab("Week") + ylab("Patients with Mutation")
+   g1 <- g1 + geom_point()
+   g1 <- g1 + geom_smooth(method = "lm")
+   g1 <- g1 + scale_y_continuous(breaks = seq(from = 0, to = 40, by = 5))
+   g1 <- g1 + scale_x_continuous(breaks = c(4, 8, 12)) 
+   g1 <- g1 + annotate("text", x = 5, y = 1, label = eqn, parse = TRUE)
+}
+```
+
+### Draw NNRTI's
+
+```{r nnrtigr, echo = FALSE, message = FALSE, warning = FALSE}
+fig6a <- draw_nnrti(nnrti_muts[1])
+fig6b <- draw_nnrti(nnrti_muts[2])
+fig6c <- draw_nnrti(nnrti_muts[3])
+```
+
+## Put NNRTI's in single graph
+
+```{r combine_nnrti, echo = FALSE}
+fignnrti <- ggarrange(fig6a, fig6b, fig6c, ncol = 3, nrow = 1)
+fignnrti
+```
+
+## Survival -- NRTIs -- Compare TAMS and TAMS with M184V
+
+```{r nrti}
+
+tam1 <- c("tr41", "tr210", "tr215")
+tam2 <- c("tr67", "tr70", "tr219")
+all_tams <- c("tr41", "tr210", "tr215", "tr67", "tr70", "tr219")
+nrti <- c("tr41", "tr210", "tr215", "tr67", "tr70", "tr219", "tr184")
+
+```
+
+### TAM1 Internal Differences
+
+```{r tam1}
+   name <- "TAM1"
+   tam1case <- trpbm2 %>% 
+      filter(type %in% tam1) %>% 
+      mutate(wt = ifelse(value == 1, 0, 1))
+   surv_tam1 <- Surv(time = tam1case$wk, event = tam1case$wt)
+   fit_tam1 <- survfit(surv_tam1 ~ type, data = tam1case)
+   title <- paste0("Conversion to Wild Type for ", name, " Codons")   
+#   summary(fit_tam1)
+   ggsurvplot(fit_tam1, data = tam1case,
+        palette = "aaas",
+        break.x.by = 4,
+        legend.title = "Codon",
+        pval = TRUE,
+        xlab = "Weeks",
+        ylab = "Mutation Retention Probability",
+        title = title,
+        ggtheme = theme_gray())
+```
+
+### TAM2 Internal Differences
+
+```{r tam2}
+   name <- "TAM2"
+   tam2case <- trpbm2 %>% 
+      filter(type %in% tam2) %>% 
+      mutate(wt = ifelse(value == 1, 0, 1))
+   surv_tam2 <- Surv(time = tam2case$wk, event = tam2case$wt)
+   fit_tam2 <- survfit(surv_tam2 ~ type, data = tam2case)
+   title <- paste0("Conversion to Wild Type for ", name, " Codons")   
+#   summary(fit_tam2)
+   ggsurvplot(fit_tam2, data = tam2case,
+        palette = "aaas",
+        break.x.by = 4,
+        legend.title = "Codon",
+        pval = TRUE,
+        xlab = "Weeks",
+        ylab = "Mutation Retention Probability",
+        title = title,
+        ggtheme = theme_gray())
+```
+
+### TAM1 vs. TAM2
+
+```{r tam12}
+   name <- "TAM"
+   tam12case <- trpbm2 %>% 
+      filter(type %in% all_tams) %>% 
+      mutate(wt = ifelse(value == 1, 0, 1)) %>% 
+      mutate(tam_type = ifelse(type %in% tam1, "TAM1", "TAM2"))
+   surv_tam12 <- Surv(time = tam12case$wk, event = tam12case$wt)
+   fit_tam12 <- survfit(surv_tam12 ~ tam_type, data = tam12case)
+   title <- paste0("Conversion to Wild Type for ", name, " Codons")   
+#   summary(fit_tam12)
+   ggsurvplot(fit_tam12, data = tam12case,
+        palette = "aaas",
+        break.x.by = 4,
+        legend.title = "Codon",
+        pval = TRUE,
+        xlab = "Weeks",
+        ylab = "Mutation Retention Probability",
+        title = title,
+        ggtheme = theme_gray())
+
+```
+
+### All TAMs Taken as a Group
+
+```{r all_TAMS}
+name <- "All TAM"
+   alltamcase <- trpbm2 %>% 
+      filter(type %in% all_tams) %>% 
+      mutate(wt = ifelse(value == 1, 0, 1)) 
+   surv_alltam <- Surv(time = alltamcase$wk, event = alltamcase$wt)
+   fit_alltam <- survfit(surv_alltam ~ 1, data = alltamcase)
+   title <- paste0("Conversion to Wild Type for ", name, " Codons")   
+   summary(fit_alltam)
+   ggsurvplot(fit_alltam, data = alltamcase,
+        palette = "aaas",
+        break.x.by = 4,
+        legend.title = "Codon",
+        pval = TRUE,
+        xlab = "Weeks",
+        ylab = "Mutation Retention Probability",
+        title = title,
+        ggtheme = theme_gray())
+
+```
+
+### TAMS vs tr184
+
+```{r TAMS184}
+name <- "NRTI"
+   tam184case <- trpbm2 %>% 
+      filter(type %in% nrti) %>% 
+      mutate(wt = ifelse(value == 1, 0, 1)) %>% 
+      mutate(type = ifelse(type == "tr184", "tr184", "TAM"))
+   surv_tam184 <- Surv(time = tam184case$wk, event = tam184case$wt)
+   fit_tam184 <- survfit(surv_tam184 ~ type, data = tam184case)
+   title <- paste0("Conversion to Wild Type for ", name, " Codons")   
+#   summary(fit_tam184)
+   ggsurvplot(fit_tam184, data = tam184case,
+        palette = "aaas",
+        break.x.by = 4,
+        legend.title = "Codon",
+        pval = TRUE,
+        xlab = "Weeks",
+        ylab = "Mutation Retention Probability",
+        title = title,
+        ggtheme = theme_gray())
+```
+
+### All NRTI Codons as a Group
+
+```{r all_NRTI}
+name <- "All NRTI"
+   allcase <- trpbm2 %>% 
+      filter(type %in% nrti) %>% 
+      mutate(wt = ifelse(value == 1, 0, 1)) 
+   surv_allnrti <- Surv(time = allcase$wk, event = allcase$wt)
+   fit_allnrti <- survfit(surv_allnrti ~ 1, data = allcase)
+   title <- paste0("Conversion to Wild Type for ", name, " Codons")   
+#   summary(fit_allnrti)
+   ggsurvplot(fit_allnrti, data = allcase,
+        palette = "aaas",
+        break.x.by = 4,
+        legend.title = "Codon",
+        pval = TRUE,
+        xlab = "Weeks",
+        ylab = "Mutation Retention Probability",
+        title = title,
+        ggtheme = theme_gray())
+
+```
+
+## Survival -- NNRTIs
+
+1. Use the 3 NNRTI codons: 103, 181, 190
+2. Modify the value as above
+
+
+```{r nnrti}
+nnrti_codons <- c("tr103", "tr181", "tr190")
+nnrti <- trpbm2 %>% 
+   filter(type %in% nnrti_codons) %>% 
+   mutate(wt = ifelse(value == 1, 0, 1))
+survnnrti <- Surv(time = nnrti$wk, event = nnrti$wt)
+fitnnrti <- survfit(survnnrti ~ type, data = nnrti)
+# summary(fitnnrti)
+ggsurvplot(fitnnrti, data = nnrti,
+           palette = "aaas",
+           break.x.by = 4,
+           legend.title = "Codon",
+           xlab = "Weeks",
+           ylab = "Mutation Retention Probability",
+           title = "Conversion to Wild Type for NNRTI Codons",
+           ggtheme = theme_gray())
+```
+
+## Positive Slope PR Codons -- 77 & 88
+
+Show their results in survival analysis
+
+```{r surv7788}
+mutnamespr <- c("pr77", "pr88")
+prmuts <- prpbm2 %>% 
+       filter(type %in% mutnamespr & n %in% pacs_resist) %>% 
+       mutate(wt = ifelse(value == 1, 0, 1))  # wt = wild type
+surv_pr <- Surv(time = prmuts$wk, event = prmuts$wt)
+fit_each_pr <- survfit(surv_pr ~ type, data = prmuts)
+summary(fit_each_pr)
+
+prmuts %>% 
+   filter(type == "pr77") %>% 
+   arrange(type, wk)
+prmuts %>% 
+   group_by(type, wk) %>% 
+   summarise(wktots = sum(wt))
+## Graph
+title <- paste0("Reversion to Wild Type for Protease Codons 77 & 88")   
+ggsurv7788 <- ggsurvplot(fit_each_pr, data = prmuts,
+     palette = "aaas",
+     break.x.by = 4,
+     legend.title = "Codon",
+#     pval = TRUE,
+     cumevents = TRUE,
+     xlab = "Weeks",
+     ylab = "Mutation Retention Probability",
+     title = title,
+     ggtheme = theme_gray())
+ggsurv7788
+```
+
+### Draw pr77 and pr88 as regression
+
+```{r drawreg7788, echo = FALSE, }
+wksto0_pr <- readRDS("wksto0_pr_full.rds")
+edit_out_pr <- wksto0_pr$Mutation[wksto0_pr$Weeks == Inf]
+resist_pac <- rev_groups %>% 
+   filter(rev_group != 0) %>% 
+   mutate(pac = n)
+   select(pac)
+resist_pac <- resist_pac$pac
+prpbmuts <- prpbm2 %>% 
+   filter(n %in% resist_pac) %>% 
+   filter(value > 0) %>% 
+   group_by(wk, type) %>% 
+   summarize(num = n())
+prpbmuts <- prpbmuts %>% filter(!(type %in% edit_out_pr))
+prmutnames <- unique(prpbmuts$type)
+wksto0 <- data_frame(Mutation = NA, Weeks = NA, int = NA, beta = NA, r2 = NA)
+# Recalculate regression
+# loop over mutations
+for (i in 1:length(prmutnames)){
+# Calculate regression equation
+   fit <- lm(num ~ wk, data = prpbmuts[prpbmuts$type == prmutnames[i],])
+# Put week to 0 patients calculation in wk0 data frame
+   intercept <- fit$coef[1]
+   slope <- fit$coef[2]
+# algebraic solution
+   wks <- (-intercept/slope)
+   wksto0 <- rbind(wksto0, data_frame(Mutation = as.character(prmutnames[i]), 
+                                      Weeks = wks,
+                                      int = intercept,
+                                      beta = slope,
+                                      r2 = summary(fit)$r.squared))
+}
+prwksto0 <- wksto0[-1,]
+
+drawPRmut <- function(prmut){
+   mut <- prwksto0 %>% 
+      filter(Mutation == prmut) 
+   intercept <- unname(format(mut$int[1], digits = 3))
+   slope <- unname(format(mut$beta[1], digits = 3))
+   rsq <- unname(format(mut$r2[1], digits = 3))
+   eqn <- as.character(as.expression(
+      substitute(italic(y) == a + b * italic(x) * "," ~~ italic(r)^2 ~ "=" ~ r2,
+        list(a = intercept,
+             b = slope,
+             r2 = rsq   ))))
+   # Draw graph
+   title <- paste(prmut)
+   g1 <- ggplot(prpbmuts[prpbmuts$type == prmut,], aes(x = wk, y = num)) 
+   g1 <- g1 + ggtitle(title)
+   g1 <- g1 + xlab("Week") + ylab("Patients with Mutation")
+   g1 <- g1 + geom_point()
+   g1 <- g1 + geom_smooth(method = "lm")
+   g1 <- g1 + scale_y_continuous(breaks = seq(from = 0, to = 40, by = 5))
+   g1 <- g1 + scale_x_continuous(breaks = c(4, 8, 12)) 
+   g1 <- g1 + annotate("text", x = 8, y = 2, label = eqn, parse = TRUE)
+}
+gr77 <- drawPRmut("pr77")
+gr88 <- drawPRmut("pr88")
+fig7788 <- ggarrange(gr77, gr88, ncol = 1, nrow = 2, align = "v")
+fig7788
+
+```
+
+
+## File Information
+
+  * File creation date: `r Sys.Date()`
+  * `r R.version.string`
+  * Additional session information
+  
+```{r echo=FALSE}
+devtools::session_info()
+```
+  

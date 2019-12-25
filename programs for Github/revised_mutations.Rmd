@@ -1,0 +1,288 @@
+---
+title: "Revised_Mutations"
+author: "James R. Hunter"
+date: "5/6/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Modules
+
+```{r loadmods, echo = TRUE, message = FALSE}
+library(tidyverse)
+library(DescTools)
+library(knitr)
+library(RColorBrewer)
+library(readxl)
+library(ggpubr)
+library(kableExtra)
+library(stringr)
+options(scipen = 5)
+load("prpbm2.RData")
+load("trpbm2.RData")
+rev_groups <- readRDS("rev_groups.rds")
+```
+
+## ID of resistant patients
+
+```{r resist_patients}
+resist_pac <- rev_groups %>% 
+   filter(rev_group != 0) %>% 
+   select(n)
+resist_pac <- resist_pac$n
+```
+
+## PR Mutations -- Establish new mutations data frame
+
+```{r pr_mutations}
+prpbmuts <- prpbm2 %>% 
+   filter(n %in% resist_pac) %>% 
+   filter(value > 0) %>% 
+   group_by(wk, type) %>% 
+   summarize(num = n())
+
+prpbmutstot  <- prpbmuts %>% 
+   group_by(type) %>% 
+   summarize(n = n())
+kable(prpbmutstot)
+
+## eliminate from consideration codons with only 1 value
+not_short <- prpbmutstot %>% 
+   filter(n > 1)
+
+prpbmuts <- prpbmuts %>% 
+   filter(type %in% not_short$type) 
+
+```
+
+# Calculate regressions and weeks to 0 for PR
+
+```{r pr_wksto0, warning = FALSE}
+wksto0 <- tibble(Mutation = NA, Weeks = NA, int = NA, beta = NA, r2 = NA)
+prmutnames <- unique(prpbmuts$type)
+# loop over mutations
+for (i in 1:length(prmutnames)){
+# Calculate regression equation
+   fit <- lm(num ~ wk, data = prpbmuts[prpbmuts$type == prmutnames[i],])
+# Put week to 0 patients calculation in wk0 data frame
+   intercept <- fit$coef[1]
+   slope <- fit$coef[2]
+# algebraic solution
+   wks <- (-intercept/slope)
+   wksto0 <- rbind(wksto0, data_frame(Mutation = as.character(prmutnames[i]), 
+                                      Weeks = wks,
+                                      int = intercept,
+                                      beta = slope,
+                                      r2 = summary(fit)$r.squared))
+}
+```
+## Table of Weeks to 0 Patients with Mutation
+
+```{r tableto0}
+wksto0 <- wksto0[-1,] # remove the first row with the NA values
+wksto0$Weeks <- round(wksto0$Weeks, digits = 3)
+wksto0$r2 <- round(wksto0$r2, digits = 3)
+rownames(wksto0) <- NULL
+kable(wksto0)
+```
+The next table shows the PR mutations that are either infinite (because the values are all the same) or will never get to 0 (Weeks are negative.). I will eliminate these from further analysis
+
+```{r remove_cases_pr}
+wksto0 %>% 
+   filter(Weeks < 0 | Weeks == Inf) 
+edit_out_pr <- wksto0$Mutation[wksto0$Weeks == Inf | wksto0$Weeks < 0] 
+   
+#Remove these codons from the analysis
+prpbmuts <- prpbmuts %>% filter(!(type %in% edit_out_pr))
+prmutnames <- unique(prpbmuts$type)
+# Reinitialize wksto0
+wksto0 <- data_frame(Mutation = NA, Weeks = NA, int = NA, beta = NA, r2 = NA)
+# Recalculate regression
+# loop over mutations
+for (i in 1:length(prmutnames)){
+# Calculate regression equation
+   fit <- lm(num ~ wk, data = prpbmuts[prpbmuts$type == prmutnames[i],])
+# Put week to 0 patients calculation in wk0 data frame
+   intercept <- fit$coef[1]
+   slope <- fit$coef[2]
+# algebraic solution
+   wks <- (-intercept/slope)
+   wksto0 <- rbind(wksto0, data_frame(Mutation = as.character(prmutnames[i]), 
+                                      Weeks = wks,
+                                      int = intercept,
+                                      beta = slope,
+                                      r2 = summary(fit)$r.squared))
+}
+prwksto0 <- wksto0[-1,]
+```
+
+## TR Mutations -- Establish new mutations data frame
+
+```{r tr_mutations}
+trpbmuts <- trpbm2 %>% 
+   filter(n %in% resist_pac) %>% 
+   filter(value > 0) %>% 
+   group_by(wk, type) %>% 
+   summarize(num = n())
+trpbmutstot  <- trpbmuts %>% 
+   group_by(type) %>% 
+   summarize(n = n())
+kable(trpbmutstot)
+
+## eliminate from consideration codons with only 1 value
+not_short <- trpbmutstot %>% 
+   filter(n > 1)
+
+trpbmuts <- trpbmuts %>% 
+   filter(type %in% not_short$type) 
+
+```
+
+# Calculate regressions and weeks to 0 for TR
+
+```{r tr_wksto0, warning = FALSE}
+wksto0 <- tibble(Mutation = NA, Weeks = NA, int = NA, beta = NA, r2 = NA)
+trmutnames <- unique(trpbmuts$type)
+# loop over mutations
+for (i in 1:length(trmutnames)){
+# Calculate regression equation
+   fit <- lm(num ~ wk, data = trpbmuts[trpbmuts$type == trmutnames[i],])
+# Put week to 0 patients calculation in wk0 data frame
+   intercept <- fit$coef[1]
+   slope <- fit$coef[2]
+# algebraic solution
+   wks <- (-intercept/slope)
+   wksto0 <- rbind(wksto0, data_frame(Mutation = as.character(trmutnames[i]), 
+                                      Weeks = wks,
+                                      int = intercept,
+                                      beta = slope,
+                                      r2 = summary(fit)$r.squared))
+}
+```
+## Table of Weeks to 0 Patients with Mutation
+
+```{r tableto0a}
+wksto0 <- wksto0[-1,] # remove the first row with the NA values
+wksto0$Weeks <- round(wksto0$Weeks, digits = 3)
+wksto0$r2 <- round(wksto0$r2, digits = 3)
+rownames(wksto0) <- NULL
+kable(wksto0)
+```
+
+```{r remove_cases_tr}
+wksto0 %>% 
+   filter(Weeks < 0 | Weeks == Inf) %>% 
+   kable()
+edit_out_tr <- wksto0$Mutation[wksto0$Weeks == Inf | wksto0$Weeks < 0] 
+   
+#Remove these codons from the analysis
+trpbmuts <- trpbmuts %>% 
+   filter(!(type %in% edit_out_tr)) %>% 
+   ungroup()
+trmutnames <- unique(trpbmuts$type)
+# Reinitialize wksto0
+wksto0 <- data_frame(Mutation = NA, Weeks = NA, int = NA, beta = NA, r2 = NA)
+# Recalculate regression
+# loop over mutations
+for (i in 1:length(trmutnames)){
+# Calculate regression equation
+   fit <- lm(num ~ wk, data = trpbmuts[trpbmuts$type == trmutnames[i],])
+# Put week to 0 patients calculation in wk0 data frame
+   intercept <- fit$coef[1]
+   slope <- fit$coef[2]
+# algebraic solution
+   wks <- (-intercept/slope)
+   wksto0 <- rbind(wksto0, data_frame(Mutation = as.character(trmutnames[i]), 
+                                      Weeks = wks,
+                                      int = intercept,
+                                      beta = slope,
+                                      r2 = summary(fit)$r.squared))
+}
+trwksto0 <- wksto0[-1,]
+```
+
+## Save new files
+
+```{r save_rev_files}
+saveRDS(trpbmuts, file = "trpbmuts_rev.rds")
+saveRDS(prpbmuts, file = "prpbmuts_rev.rds")
+saveRDS(trwksto0, file = "trweeksto0.rds")
+```
+
+
+## Table 8 Mean Weeks until Complete Reversion
+
+```{r}
+nrti_muts <- c("tr41",  "tr210", "tr215", "tr67",  "tr70",  "tr219", "tr184")
+nnrti_muts <- c("tr103", "tr181", "tr190")
+pi_muts <- c("pr10", "pr20", "pr24", "pr36", "pr46", "pr48",
+             "pr53", "pr54", "pr63", "pr71", "pr73", "pr82",
+             "pr84", "pr90")
+
+prpbmuts <- readRDS("prpbmuts_rev.rds")
+trpbmuts <- readRDS("trpbmuts_rev.rds")
+
+prsumm <- prwksto0 %>% 
+   summarize(mean = mean(Weeks), stddev = sd(Weeks))
+prsumm
+
+nrtisumm <- trwksto0  %>% 
+   filter(Mutation %in% nrti_muts) %>% 
+   summarize(mean = mean(Weeks), stddev = sd(Weeks))
+nrtisumm
+
+nnrtisumm <- trwksto0  %>% 
+   filter(Mutation %in% nnrti_muts) %>% 
+   summarize(mean = mean(Weeks), stddev = sd(Weeks))
+nnrtisumm
+```
+
+## TAMS and 184
+
+```{r}
+tam1 <- c("tr41", "tr210", "tr215")
+tam2 <- c("tr67", "tr70", "tr219")
+
+tam1no <- trpbmuts  %>% 
+   filter(type %in% tam1) %>% 
+   group_by(wk) %>% 
+   summarize(mean = mean(num), stddev = sd(num))
+tam1no
+
+tam1summ <- trwksto0  %>% 
+   filter(Mutation %in% tam1) %>% 
+   summarize(mean = mean(Weeks), stddev = sd(Weeks))
+tam1summ
+
+tam2summ <- trwksto0  %>% 
+   filter(Mutation %in% tam2) %>% 
+   summarize(mean = mean(Weeks), stddev = sd(Weeks))
+tam2summ
+
+tam2no <- trpbmuts  %>% 
+   filter(type %in% tam2) %>% 
+   group_by(wk) %>% 
+   summarize(mean = mean(num), stddev = sd(num))
+tam2no
+
+alltamssumm <- trwksto0  %>% 
+   filter(Mutation != "tr184") %>% 
+   summarize(mean = mean(Weeks), stddev = sd(Weeks))
+alltamssumm
+
+codon184summ <- trwksto0  %>% 
+    filter(Mutation == "tr184")
+codon184summ
+
+codon184 <- trpbmuts  %>% 
+   filter(type == "tr184")
+codon184
+
+
+```
+
+
+

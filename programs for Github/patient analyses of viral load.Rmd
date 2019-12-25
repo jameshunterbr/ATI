@@ -1,0 +1,97 @@
+---
+title: "Viral Load STI"
+author: "James Hunter"
+date: "December 16, 2014"
+output: pdf_document
+---
+
+Set up viral load for graphing using pacdat2
+
+```{r set up viral load data}
+# create vldata subset
+vlset <- subset(pacdat2, type = "cv", select = c(pac, resist, value, wk))
+
+# create VL mean for each patient
+summ_vl <- by(vlset$value, vlset$pac, summary)
+summ_vlwk <- by(vlset$value, vlset$wk, summary)
+mean_vl <- by(vlset$value, vlset$pac, mean)
+summary(mean_vl)
+summ_vlwk
+```
+
+
+# Show boxplot of mean_vl
+```{r mean_vl}
+require(ggplot2)
+vlbox <- ggplot(vlset, aes(x = factor(wk), y = value))
+vlbox <- vlbox + geom_boxplot()
+vlbox <- vlbox + stat_summary(fun.y="mean", geom="point", shape=23, size=3, fill="white")
+vlbox <- vlbox + xlab("Week") + ylab("viral copies per ml (log scale)")
+vlbox <- vlbox + scale_y_log10(breaks = 10 ^ (0:7))
+vlbox <- vlbox + ggtitle("Viral Load Distribution by Week")
+vlbox
+```
+
+The boxplot clearly shows the increase in median viral load across the patients as the number of weeks since the stopping of ART therapy increases. Note that the y-axis scale for this graph is logarithmic with the median varying between 100,000 and 1,000,000.
+
+Difference between Patient Classes as Resistant and Non-Resistant
+-----------------------------------------------------------------
+
+```{r}
+by(vlset$value, vlset$resist, summary)
+vlrnr_mean <-  by(vlset$value, vlset$resist, mean)
+
+vlrnr <- ggplot(vlset, aes(x = resist, y = value))
+vlrnr <- vlrnr + geom_boxplot()
+vlrnr <- vlrnr + stat_summary(fun.y="mean", geom="point", shape=23, size=3, fill="white")
+vlrnr <- vlrnr + xlab("Resist/Non-Resistant") + ylab("viral copies per ml (log scale)")
+vlrnr <- vlrnr + scale_y_log10(breaks = 10 ^ (0:7))
+vlrnr <- vlrnr + ggtitle("Viral Load Distribution\nResistant vs. Non-Resistant")
+vlrnr
+```
+
+Line Graph of Viral Load Resistant vs. Non-Resistant
+----------------------------------------------------
+
+```{r line}
+vlrnrmean <- data.frame(resist = c("NR", "R"), 
+                 val = c(mean(vlset$value[vlset$resist == "NR"]), 
+                         mean(vlset$value[vlset$resist == "R"])))
+vlrnrm <- ggplot(vlrnrmean, aes(x = resist, y = val, group = 1))
+vlrnrm <- vlrnrm + geom_bar(stat = "identity", width = 0.5)
+vlrnrm <- vlrnrm + xlab("Non-Resistant/Resistant") + ylab("mean viral copies per ml")
+vlrnrm <- vlrnrm + scale_y_continuous(breaks = seq(100000, 600000, by = 100000))
+vlrnrm <- vlrnrm + ggtitle("Viral Load Means\nResistant vs. Non-Resistant")
+vlrnrm <- vlrnrm + geom_text(aes(label = round(val,2)), vjust = -0.5)
+vlrnrm
+```
+
+Graph of Means of Resistant vs. Non-Resistant by Week
+-----------------------------------------------------
+```{r}
+# set up database with week, resist and NA for values
+vlrnrmeanwk <- data.frame(week = c(0, 0, 4, 4, 8, 8, 12, 12),
+                          resist = rep(c("NR", "R"), 4), 
+                          val = rep(NA, 8))
+
+# add values to the database
+for (i in 1:8) {
+   wk <- vlrnrmeanwk[i,1]
+   res <- vlrnrmeanwk[i,2]
+   if (res == "NR") {
+      vlrnrmeanwk$val[i] <- mean(vlset$value[vlset$resist == "NR" & vlset$wk == wk])
+   }else {
+      vlrnrmeanwk$val[i] <- mean(vlset$value[vlset$resist == "R" & vlset$wk == wk])   }
+}
+# Build plot                         
+vlrnrmwk <- ggplot(vlrnrmeanwk, aes(x = week, y = val, 
+                  linetype = resist, colour = resist))
+vlrnrmwk <- vlrnrmwk + scale_colour_brewer(palette="Set1")
+vlrnrmwk <- vlrnrmwk + geom_line(size = 2) + geom_point(size = 4,
+                       colour = "black", fill = "black")
+vlrnrmwk <- vlrnrmwk + xlab("Week") + ylab("mean viral copies per ml")
+vlrnrmwk <- vlrnrmwk + scale_x_continuous(breaks = c(0, 4, 8, 12))
+vlrnrmwk <- vlrnrmwk + ggtitle("Viral Load Means by Week\nResistant vs. Non-Resistant")
+vlrnrmwk
+```
+

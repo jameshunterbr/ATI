@@ -1,0 +1,382 @@
+---
+title: "Translation of WT Plasma Pol Sequences"
+author: "James R. Hunter"
+version: "v4a"
+output:
+  word_document: default
+  html_notebook: default
+date: "September 9, 2017"
+---
+
+## Setup
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_hooks$set(mysize = function(before, options, envir) {
+  if (before) 
+    return(options$size)
+})
+```
+
+```{r loadmods}
+  suppressMessages(library(tidyverse))
+  suppressPackageStartupMessages(library(seqinr))
+  suppressPackageStartupMessages(library(DescTools))
+  suppressPackageStartupMessages(library(knitr))
+  suppressPackageStartupMessages(library(RColorBrewer))
+  suppressPackageStartupMessages(library(broom))
+  suppressPackageStartupMessages(library(Biostrings))
+  suppressPackageStartupMessages(library(ggjoy))
+  suppressPackageStartupMessages(library(ggrepel))
+  suppressPackageStartupMessages(library(ggpubr))
+  suppressPackageStartupMessages(library(stringr))
+  
+  options(scipen = 5)
+  
+```
+
+## Function for Matching 2 Sequences -- Nucleotides (v. 1.5)
+
+```{r}
+matchednuc <- function(seq1, seq2) {
+
+   # if the sequences are not in Bioconductor form, move them into DNAStrings
+   if(class(seq1) != "DNAString") seq1 <- DNAString(seq1)
+   if(class(seq2) != "DNAString") seq2 <- DNAString(seq2)
+   
+   if(length(seq1) != length(seq2)) {
+      stop("Sequences not of equal length", call. = FALSE)
+   }
+   
+   # set up vector for matches using the code "y" = match,
+   # p = partial match, n = no match
+   matches  <-  vector(mode = "character", length = length(seq1))
+   
+   # vector of positions that are no match
+   div <- vector(mode = "numeric", length = 0)
+   
+   # vector of positions that are partial matches
+   par <- vector(mode = "numeric", length = 0)
+   
+    ## types of nucleotides
+   purine <- c("A", "G")
+   pyrimidine <- c("C", "T")
+   keto <- c("G", "T")
+   amino <- c("A", "C")
+   for (i in 1:nchar(seq1)) {
+      a <- as.character(substr(seq1, i, i))
+      b <- as.character(substr(seq2, i, i))
+      if (a == b) {
+         matches[i]  <-  "y"
+      }
+      else {
+         if((a == "R" | b == "R") & (a %in% purine | b %in% purine)){
+            matches[i]  <- "p"
+            par <- c(par, i)
+         }
+         else {
+            if((a == "Y" | b == "Y") & (a %in% pyrimidine | b %in% pyrimidine)){
+               matches[i]  <- "p"
+               par <- c(par, i)
+            }
+            else {
+               if((a == "M" | b == "M") & (a %in% amino | b %in% amino)){
+                  matches[i]  <- "p" 
+                  par <- c(par, i)
+               }
+               else {
+                  if((a == "K" | b == "K") & (a %in% keto | b %in% keto)){
+                     matches[i]  <- "p"
+                     par <- c(par, i)
+                  }
+                  else {
+                     matches[i] <- "n"
+                     div <- c(div, i)
+                  }
+               }
+            }
+         }   
+      }
+   }
+   temp <- list(matches = sum(matches == "y"), partials = sum(matches == "p"), 
+                nomatch = sum(matches == "n"), divergent = div, partial = par)
+}
+
+```
+
+## Function for Matching 2 Sequences -- Amino Acids
+
+```{r}
+matchedaa <- function(seq1, seq2) {
+
+   # if the sequences are not in Bioconductor form, move them into DNAStrings
+   if(class(seq1) != "AAString") seq1 <- AAString(seq1)
+   if(class(seq2) != "AAString") seq2 <- AAString(seq2)
+   
+   if(length(seq1) != length(seq2)) {
+      stop("Sequences not of equal length", call. = FALSE)
+   }
+   
+   # set up vector for matches using the code "y" = match,
+   # p = partial match, n = no match
+   matches  <-  vector(mode = "character", length = length(seq1))
+   
+   # vector of positions that are no match (div) or matched with an X (par)
+   div <- vector(mode = "numeric", length = 0)
+   par <- vector(mode = "numeric", length = 0)
+   
+   for (i in 1:nchar(seq1)) {
+      a <- as.character(substr(seq1, i, i))
+      b <- as.character(substr(seq2, i, i))
+      if (a == b) {
+         matches[i]  <-  "y"
+      }
+      else {
+         if(a == "X" | b == "X") {
+            matches[i]  <- "p"
+            par <- c(par, i)
+         }
+         else {
+            matches[i] <- "n"
+            div <- c(div, i)
+         }
+      }
+   }
+   temp <- list(matches = sum(matches == "y"), partialsum = sum(matches == "p"),
+                nomatch = sum(matches == "n"), divergent = div, partials = par)
+
+}
+```
+
+## Function for Executing Matches
+
+```{r}
+do_matching <- function(seq1, seq2, matchres, type = "DNA", partials = FALSE) {
+   if(matchres$nomatch == 0) {
+      matchres$nomatch = 1
+      matchres$divergent = 0
+   }
+   
+   # if partials = TRUE, put the partials in the divergent list
+   
+   if (type == "AA" & partials) {
+      matchres$nomatch <- 0
+      matchres$divergent <- matchres$partials
+   }
+   
+   div <- tibble(pos = matchres[["divergent"]], pre = NA, post = NA)  
+   
+   for (i in 1:nrow(div)) {
+      num <- div$pos[i]
+      div$pre[i] <- as.character(seq1[num])
+      div$post[i] <- as.character(seq2[num])
+   }
+   return(div)
+}
+
+```
+
+## Load pre-STI Sequences
+
+```{r}
+wt_pre_nuc <- readDNAStringSet("no_resist_before.fasta", format = "fasta")
+wt_pre_nuc_2 <- wt_pre_nuc[[1]]
+wt_pre_nuc_7 <- wt_pre_nuc[[2]]
+wt_pre_nuc_37 <- wt_pre_nuc[[3]]
+wt_post_nuc <- readDNAStringSet("no_resist_post.fasta", format = "fasta")
+wt_post_nuc_2 <- wt_post_nuc[[1]]
+wt_post_nuc_7 <- wt_post_nuc[[2]]
+wt_post_nuc_37 <- wt_post_nuc[[3]]
+```
+
+## Translate sequences to proteins
+
+```{r}
+(wt_pre_aa_2 <- translate(wt_pre_nuc_2, if.fuzzy.codon = "solve"))
+(wt_pre_aa_7 <- translate(wt_pre_nuc_7, if.fuzzy.codon = "solve"))
+(wt_pre_aa_37 <- translate(wt_pre_nuc_37, if.fuzzy.codon = "solve"))
+(wt_post_aa_2 <- translate(wt_post_nuc_2, if.fuzzy.codon = "solve"))
+(wt_post_aa_7 <- translate(wt_post_nuc_7, if.fuzzy.codon = "solve"))
+(wt_post_aa_37 <- translate(wt_post_nuc_37, if.fuzzy.codon = "solve"))
+```
+
+### Pre STI
+
+Patient 2: `r wt_pre_aa_2`
+
+Patient 7: `r wt_pre_aa_7`
+
+Patient 37: `r wt_pre_aa_37`
+
+### Post STI
+
+Patient 2: `r wt_post_aa_2`
+
+Patient 7: `r wt_post_aa_7`.
+
+Patient 37: `r wt_post_aa_37`
+
+
+
+### Check on Concordance among AA sequences
+
+*Pre*
+
+```{r}
+wt_pre_27 <- matchedaa(wt_pre_aa_2, wt_pre_aa_7)
+wt_pre_237 <- matchedaa(wt_pre_aa_2, wt_pre_aa_37)
+wt_pre_737 <- matchedaa(wt_pre_aa_7, wt_pre_aa_37)
+avg_wt_pre_concord <- 100 * mean(c(wt_pre_27[[1]], 
+                                wt_pre_237[[1]], 
+                                wt_pre_737[[1]]))/length(wt_pre_aa_2)
+```
+
+*Post*
+
+```{r}
+wt_post_27 <- matchedaa(wt_post_aa_2, wt_post_aa_7)
+wt_post_237 <- matchedaa(wt_post_aa_2, wt_post_aa_37)
+wt_post_737 <- matchedaa(wt_post_aa_7, wt_post_aa_37)
+avg_wt_post_concord <- 100 * mean(c(wt_post_27[[1]], 
+                                wt_post_237[[1]], 
+                                wt_post_737[[1]]))/length(wt_post_aa_2)
+```
+
+*Pre-Post*
+```{r}
+wt_pp_2 <- matchedaa(wt_pre_aa_2, wt_post_aa_2)
+wt_pp_7 <- matchedaa(wt_pre_aa_7, wt_post_aa_7)
+wt_pp_37 <- matchedaa(wt_pre_aa_37, wt_post_aa_37)
+avg_wt_pp_concord <- 100 * mean(c(wt_pp_2[[1]], 
+                                wt_pp_7[[1]], 
+                                wt_pp_37[[1]]))/length(wt_post_aa_2)
+```
+
+### Pre-STI and Post-STI Divergences by AA Position
+
+Sequence 2: `r length(wt_pp_2[["divergent"]])` locations with difference
+
+`r wt_pp_2[[3]]`
+
+Sequence 7: `r length(wt_pp_7[["divergent"]])` locations with difference
+
+`r wt_pp_7[[3]]`
+
+Sequence 37: `r length(wt_pp_37[["divergent"]])` locations with difference
+
+`r wt_pp_37[[3]]`
+
+
+
+## Looking at Divergences for Pre and Post STI
+
+```{r}
+do_matching(wt_pre_aa_2, wt_post_aa_2, wt_pp_2, type = "AA")
+do_matching(wt_pre_aa_7, wt_post_aa_7, wt_pp_7, type = "AA")
+do_matching(wt_pre_aa_37, wt_post_aa_37, wt_pp_37, type = "AA")
+```
+
+
+## Calculation of region on samples ranging from mutation p71 to p77 (21 nucleotides)
+
+Reference Sequence from HXB-2: gctataggtacagtattagta (AIGTVLV)
+
+Using post-STI sequence for Patient 2
+
+Looking for a sequence that starts with Alanine (GCT) and ends with Valine (GTA)
+
+Part of the object here is to identify the region of the POL gene that our samples come from.
+
+
+```{r}
+# Calculate letter frequencies for pre- and post-STI sequences in this small 
+alpha_2_pre <- alphabetFrequency(wt_pre_nuc_2)
+alpha_2_post <- alphabetFrequency(wt_post_nuc_2)
+
+print("Pre-STI:")
+(alpha_2_pre)
+print("Post-STI:")
+(alpha_2_post)
+```
+
+The Pre-STI sequence has 1 amino, 14 purines and 5 pyrimidines
+The Post-STI sequence has 2 aminos, 9 purines and 13 pyrimidines
+
+I will create a tibble with the original sequence, an A set of pre- and post- sequences and a B set of pre- and post- sequenced. Each of these will have one of the options for the aminos, purines and pyrimidines.
+
+```{r}
+
+## Pre-STI
+origpre <-  as.character(wt_pre_nuc_2)
+pre_2_A <- origpre %>% 
+   str_replace_all("M", "A") %>% #amino
+   str_replace_all("R", "A") %>% #purine
+   str_replace_all("Y", "C") %>% #pyrimidine
+   str_replace_all("S", "G") %>% #strong
+   str_replace_all("W", "A")     #weak
+
+pre_2_B <- origpre %>% 
+   str_replace_all("M", "C") %>% #amino
+   str_replace_all("R", "G") %>% #purine
+   str_replace_all("Y", "T") %>% #pyrimidine
+   str_replace_all("S", "C") %>% #strong
+   str_replace_all("W", "T")     #weak
+pre_2 <- tibble(origpre, pre_2_A, pre_2_B)
+
+## Post-STI
+origpost <-  as.character(wt_post_nuc_2)
+post_2_A <- origpost %>% 
+   str_replace_all("M", "A") %>% #amino
+   str_replace_all("R", "A") %>% #purine
+   str_replace_all("Y", "C") %>% #pyrimidine
+   str_replace_all("S", "G") %>% #strong
+   str_replace_all("W", "A")     #weak
+
+post_2_B <- origpost %>% 
+   str_replace_all("M", "C") %>% #amino
+   str_replace_all("R", "G") %>% #purine
+   str_replace_all("Y", "T") %>% #pyrimidine
+   str_replace_all("S", "C") %>% #strong
+   str_replace_all("W", "T")     #weak
+post_2 <- tibble(origpost, post_2_A, post_2_B)
+```
+
+
+
+## Global Alignments of AA for 3 Wild-Type Reverting Sequences
+
+Using BLOSUM62 substitution matrix, gap opening penalty of 2 and extension of 1
+
+```{r}
+scoremat <- "BLOSUM62"
+gap_open <- 2
+gap_extend <- 1
+pac2_pre_post_align <- pairwiseAlignment(wt_pre_aa_2, wt_post_aa_2, 
+                                         substitutionMatrix = scoremat,
+                                         gapOpening = 2, gapExtension = 1, 
+                                         type = "global", scoreOnly = FALSE)
+pac2_pre_post_align
+```
+
+
+
+
+
+
+
+
+## Extra code
+str_pac2_post <- as.character(wt_post_nuc_2)[[1]]
+gya <- str_locate_all(str_pac2_post, "GYT")
+gya[[1]]
+gctgta <- str_locate_all(str_pac2_post, "GCT")
+gctgta[[1]]
+```{ }
+for (i in 1:7) {
+   start <- gctgta_post_B[[1]][i]
+   x <- substr(post_2$post_2_B, start, start+20) # 7 codons
+   print(paste("Sequence", i,": Starts:", start, x))
+   y <- translate(DNAString(x), if.fuzzy.codon = "solve")
+   print(paste("Translation:", as.character(y)))
+}
+```

@@ -1,0 +1,357 @@
+---
+title: "Plasma Sequences for Wild Type Patients v3"
+author: "James R. Hunter"
+date: "October 2, 2017"
+output:
+  pdf_document: default
+  html_notebook: default
+  word_document: default
+version: v2
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_hooks$set(mysize = function(before, options, envir) {
+  if (before) 
+    return(options$size)
+})
+```
+
+```{r loadmods}
+  suppressMessages(library(tidyverse))
+  suppressPackageStartupMessages(library(seqinr))
+  suppressPackageStartupMessages(library(knitr))
+  suppressPackageStartupMessages(library(RColorBrewer))
+  suppressPackageStartupMessages(library(Biostrings))
+  suppressPackageStartupMessages(library(stringr))
+  suppressPackageStartupMessages(library(kableExtra))
+  
+  options(scipen = 5)
+  
+```
+
+## Read Reference Sequence - NC001802
+
+```{r}
+refNC001 <- readDNAStringSet("NC_001802_1.fasta", format = "fasta")
+```
+
+# Load No Mutation Sequences
+
+```{r}
+wt_pre_nuc <- readDNAStringSet("no_resist_before.fasta", format = "fasta")
+wt_pre_nuc_2 <- wt_pre_nuc[[1]]
+wt_pre_nuc_7 <- wt_pre_nuc[[2]]
+wt_pre_nuc_37 <- wt_pre_nuc[[3]]
+wt_post_nuc <- readDNAStringSet("no_resist_post.fasta", format = "fasta")
+wt_post_nuc_2 <- wt_post_nuc[[1]]
+wt_post_nuc_7 <- wt_post_nuc[[2]]
+wt_post_nuc_37 <- wt_post_nuc[[3]]
+```
+
+## Function to create A & B versions of a sequence
+
+```{r}
+ABseqs <- function(baseseq) {
+   chbaseseq <-  as.character(baseseq)
+   baseA <- chbaseseq %>% 
+      str_replace_all("M", "A") %>% #amino
+      str_replace_all("R", "A") %>% #purine
+      str_replace_all("Y", "C") %>% #pyrimidine
+      str_replace_all("S", "G") %>% #strong
+      str_replace_all("W", "A")     #weak
+
+   baseB <- chbaseseq %>% 
+      str_replace_all("M", "C") %>% #amino
+      str_replace_all("R", "G") %>% #purine
+      str_replace_all("Y", "T") %>% #pyrimidine
+      str_replace_all("S", "C") %>% #strong
+      str_replace_all("W", "T")     #weak
+
+   return(outseq <- tibble(chbaseseq, baseA, baseB))
+}
+```
+
+## Take the ambiguity of nuc sequences into account
+
+```{r}
+pre_2AB <- ABseqs(wt_pre_nuc_2)
+pre_7AB <- ABseqs(wt_pre_nuc_7)
+pre_37AB <- ABseqs(wt_pre_nuc_37)
+post_2AB <- ABseqs(wt_post_nuc_2)
+post_7AB <- ABseqs(wt_post_nuc_7)
+post_37AB <- ABseqs(wt_post_nuc_37)
+```
+
+## Compare AB Sequences -- How Similar in Nucleotides and Proteins are They
+
+### Function for Comparing AB Sequences
+
+```{r}
+ABCompare <- function(seq) {
+   print("seq$baseA")
+   print(alphabetFrequency(DNAString(seq$baseA)))
+   print("seq$baseB")
+   print(alphabetFrequency(DNAString(seq$baseB)))
+}
+```
+
+### Comparison
+
+```{r}
+print("pre-STI, Patient 2")
+ABCompare(pre_2AB)
+print("pre-STI, Patient 7")
+ABCompare(pre_7AB)
+print("pre-STI, Patient 37")
+ABCompare(pre_37AB)
+print("post-STI, Patient 2")
+ABCompare(post_2AB)
+print("post-STI, Patient 7")
+ABCompare(post_7AB)
+print("post-STI, Patient 37")
+ABCompare(post_37AB)
+```
+
+## Translate nucleotides into Amino Acids
+
+### Function to translate A and B nucs into Amino Acids
+
+```{r}
+ABtrans <- function(seq) {
+   ### Use Biostrings::translate
+   ### input: seq = sequence from an AB data object 
+   ###   tibble with 3 vars: chbaseseq, baseA, baseB
+   ### output: tibble with aaA and aaB amino acid strings
+   ### v.1, 9/22/17
+   
+   aaA <- as.character(translate(DNAString(seq$baseA),
+                                 if.fuzzy.codon = "solve"))
+   aaB <- as.character(translate(DNAString(seq$baseB),
+                                 if.fuzzy.codon = "solve"))
+   out <- tibble(aaA, aaB)
+}
+```
+
+### Calculate amino acid AB sequences
+
+```{r}
+pre_2aaAB <- ABtrans(pre_2AB)
+pre_7aaAB <- ABtrans(pre_7AB)
+pre_37aaAB <- ABtrans(pre_37AB)
+post_2aaAB <- ABtrans(pre_2AB)
+post_7aaAB <- ABtrans(pre_7AB)
+post_37aaAB <- ABtrans(pre_37AB)
+```
+
+
+### Function for Comparing AB Amino Acid Sequences
+
+```{r}
+aaABCompare <- function(seq) {
+   print("Sequence A")
+   print(alphabetFrequency(AAString(seq$aaA)))
+   print("Sequence B")
+   print(alphabetFrequency(AAString(seq$aaB)))
+}
+```
+
+### Make Comparisons
+
+```{r}
+
+print("pre-STI, Patient 2")
+aaABCompare(pre_2aaAB)
+print("pre-STI, Patient 7")
+aaABCompare(pre_7aaAB)
+print("pre-STI, Patient 37")
+aaABCompare(pre_37aaAB)
+print("post-STI, Patient 2")
+aaABCompare(post_2aaAB)
+print("post-STI, Patient 7")
+aaABCompare(post_7aaAB)
+print("post-STI, Patient 37")
+aaABCompare(post_37aaAB)
+```
+
+## Where in the reference string of amino acids is the 434 amino acid string located?
+
+```{r}
+## load reference genome amino acids
+NC001_AA <- AAString(toupper(c2s(read.fasta(file = "NC_001802_AA.fasta")[[1]])))
+alphabetFrequency(NC001_AA)
+print("Alignment of Patient 2, Pre STI, version A with reference")
+(Pre_2A_align_AA <- pairwiseAlignment(pre_2aaAB$aaA, NC001_AA, 
+                                      substitutionMatrix = "BLOSUM45", 
+                                      type = "global" ))
+print("Alignment of Patient 2, Pre STI, version B with reference")
+(Pre_2B_align_AA <- pairwiseAlignment(pre_2aaAB$aaB, NC001_AA, 
+                                      substitutionMatrix = "BLOSUM45", 
+                                      type = "global" ))
+print("Alignment of Patient 7, Pre STI, version A with reference")
+(Pre_7A_align_AA <- pairwiseAlignment(pre_7aaAB$aaA, NC001_AA, 
+                                      substitutionMatrix = "BLOSUM45", 
+                                      type = "global" ))
+print("Alignment of Patient 7, Pre STI, version B with reference")
+(Pre_7B_align_AA <- pairwiseAlignment(pre_7aaAB$aaB, NC001_AA, 
+                                      substitutionMatrix = "BLOSUM45", 
+                                      type = "global" ))
+print("Alignment of Patient 37, Pre STI, version A with reference")
+(Pre_37A_align_AA <- pairwiseAlignment(pre_37aaAB$aaA, NC001_AA, 
+                                      substitutionMatrix = "BLOSUM45", 
+                                      type = "global" ))
+print("Alignment of Patient 2, Pre STI, version B with reference")
+(Pre_37B_align_AA <- pairwiseAlignment(pre_37aaAB$aaB, NC001_AA, 
+                                      substitutionMatrix = "BLOSUM45", 
+                                      type = "global" ))
+```
+
+## Locating the Mismatches of the Wild Type Sequences against the Reference
+
+```{r}
+
+### Counts matches and mismatches between two sequences
+### inputs: seq1 and seq2 (already in character strings)
+### output: tibble with nmatch, nmismatch (integers), 
+###         and mismatch (list of integer vector of mismatch positions)
+seq_match <- function(seq1, seq2, seqstart){
+   # set up output list items
+   nmatch = 0L
+   nmismatch = 0L 
+   mismatch = integer()
+   # loop of characters
+   for (i in 1:nchar(seq1)) {
+      if (substr(seq1, i, i) == substr(seq2, i, i)) { 
+         nmatch <- nmatch + 1L
+      }
+      else {       
+         nmismatch <- nmismatch + 1L
+         mismatch <- c(mismatch, i + seqstart - 1)
+      }
+   }
+   # Set up output tibble
+   out <- tibble(nmatch, nmismatch, mismatch = list(mismatch))
+}
+```
+
+## Kable report function (enhanced formatting)
+
+```{r}
+kable_report <- function(txt, cap) {
+   kable(txt, format = "latex", caption = cap, 
+      col.names = c("# Matches", "# Mismatches", "Mismatches")) %>%  
+  kable_styling(full_width = F) %>% 
+  column_spec(1, border_right = T) %>%
+  column_spec(2, border_right = T) %>%
+  column_spec(3, width = "30em")
+}
+```
+
+## Apply matching lists to Wild Type Sequences
+
+```{r rptwt, echo = FALSE }
+seqstart <- 489
+seqlen <- 434
+ref <- substr(as.character(NC001_AA), seqstart, seqstart + seqlen - 1)
+pre2A_ref <- seq_match(ref, pre_2aaAB$aaA, seqstart)
+pre7A_ref <- seq_match(ref, pre_7aaAB$aaA, seqstart)
+pre37A_ref <- seq_match(ref, pre_37aaAB$aaA, seqstart)
+post2A_ref <- seq_match(ref, post_2aaAB$aaA, seqstart)
+post7A_ref <- seq_match(ref, post_7aaAB$aaA, seqstart)
+post37A_ref <- seq_match(ref, post_37aaAB$aaA, seqstart)
+kable_report(pre2A_ref, "Pre-STI Patient 2")
+kable_report(pre7A_ref, "Pre-STI Patient 7")
+kable_report(pre37A_ref, "Pre-STI Patient 37")
+kable_report(post2A_ref, "Post-STI Patient 2")
+kable_report(post7A_ref, "Post-STI Patient 7")
+kable_report(post37A_ref, "Post-STI Patient 37")
+```
+
+### Comparison Summary Table Pre and Post for 3 Wild Type Patients
+
+```{r prepost}
+pre_post_comp <- tibble(patient = c(2, 7, 37),
+                        matches_Pre = rep(0L, 3),
+                        matches_Post = rep(0L, 3),
+                        mismatches_Pre = rep(0L, 3),
+                        mismatches_Post = rep(0L, 3))
+pre_post_comp$matches_Pre <- c(pre2A_ref$nmatch,
+                               pre7A_ref$nmatch,
+                               pre37A_ref$nmatch)
+pre_post_comp$matches_Post <-  c(post2A_ref$nmatch,
+                                 post7A_ref$nmatch,
+                                 post37A_ref$nmatch)
+pre_post_comp$mismatches_Pre <- c(pre2A_ref$nmismatch,
+                                  pre7A_ref$nmismatch,
+                                  pre37A_ref$nmismatch)
+pre_post_comp$mismatches_Post <-  c(post2A_ref$nmismatch,
+                                    post7A_ref$nmismatch,
+                                    post37A_ref$nmismatch)
+```
+
+Each of the three wild-type patients remains consistent in the number of amino acid differences they have in the region tested than the reference genome. The table below summarizes these results.
+
+```{r}
+kable(pre_post_comp, caption = "Wild Type Patients -- Pre and Post Matches") 
+```
+
+### Consistency of Codon Differences with the Reference Genome
+
+How consistent are the codons where differences occur between the reference genome and the patients?
+
+```{r}
+## Determine list of codons where difference occur
+master_list <- c(unlist(pre2A_ref$mismatch), unlist(pre7A_ref$mismatch), 
+                 unlist(pre37A_ref$mismatch), unlist(post2A_ref$mismatch), 
+                 unlist(post7A_ref$mismatch), unlist(post37A_ref$mismatch))
+master_list <- sort(unique(master_list))
+
+## set up tibble to hold results
+rows <- length(master_list)
+wt_codon_mismatch <- tibble(codon = master_list,
+                         pre2 = integer(rows),
+                         pre7 =  integer(rows),
+                         pre37 = integer(rows),
+                         post2 = integer(rows),
+                         post7 = integer(rows),
+                         post37 = integer(rows))
+
+## loop through codons and loop through patients to put a 1 or 0 in cell in matrix
+for (i in 1:rows) {
+   wt_codon_mismatch$pre2[i] <- ifelse(wt_codon_mismatch$codon[i] %in% unlist(pre2A_ref$mismatch), 1, 0)
+   wt_codon_mismatch$pre7[i] <- ifelse(wt_codon_mismatch$codon[i] %in% unlist(pre7A_ref$mismatch), 1, 0)
+   wt_codon_mismatch$pre37[i] <- ifelse(wt_codon_mismatch$codon[i] %in% unlist(pre37A_ref$mismatch), 1, 0)
+   wt_codon_mismatch$post2[i] <- ifelse(wt_codon_mismatch$codon[i] %in% unlist(post2A_ref$mismatch), 1, 0)
+   wt_codon_mismatch$post7[i] <- ifelse(wt_codon_mismatch$codon[i] %in% unlist(post7A_ref$mismatch), 1, 0)
+   wt_codon_mismatch$post37[i] <- ifelse(wt_codon_mismatch$codon[i] %in% unlist(post37A_ref$mismatch), 1, 0)
+}
+wt_codon_mismatch$total <- rowSums(wt_codon_mismatch[,-1])
+  
+```
+
+### Print report of Codon Differences
+
+```{r}
+kable(wt_codon_mismatch, cap = "Codons that Differ from Reference")
+```
+
+## Which Codons Differ Most from Reference (Pre-STI, Post-STI and all)?
+
+```{r}
+wt_mismatch_summ <- wt_codon_mismatch %>% 
+   mutate(preTot = pre2 + pre7 + pre37,
+          postTot = post2 + post7 + post37) %>% 
+   select(codon, preTot, postTot, total)
+wt_mismatch_tot <- wt_mismatch_summ %>% 
+   filter(total > 4) %>% 
+   select(codon, preTot, postTot, total)
+wt_mismatch_tot
+wt_mismatch_pre <- wt_mismatch_summ %>% 
+   filter(preTot == 3) %>% 
+   select(codon, preTot, postTot, total)
+wt_mismatch_pre
+wt_mismatch_post <- wt_mismatch_summ %>% 
+   filter(postTot == 3) %>% 
+   select(codon, preTot, postTot, total)
+wt_mismatch_post
+```

@@ -1,0 +1,104 @@
+---
+title: "Prevalence of Muts at Baseline"
+author: "James R. Hunter"
+date: "6/8/2018"
+output: pdf_document
+version: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loadmods, echo = TRUE, message = FALSE}
+library(tidyverse)
+library(knitr)
+library(RColorBrewer)
+library(ggpubr)
+library(kableExtra)
+library(stringr)
+options(scipen = 5)
+prpbmuts <- readRDS("prpbmuts_rev.rds")
+trpbmuts <- readRDS("trpbmuts_rev.rds")
+```
+
+# Make table of Number of Mutated Patients at Baseline for Each mutation
+
+```{r table1}
+n <- 36
+baselinepr <- prpbmuts %>% 
+   select(wk, type = mut, num) %>% 
+   filter(wk == 0) %>% select(-wk)
+baselinetr <- trpbmuts %>% 
+   filter(wk == 0) %>% select(-c(wk))
+baseline <- rbind(baselinepr, baselinetr)
+baseline$pct <- round(100 * baseline$num / 35, 1)
+kable(baseline)
+```
+
+## Summary of Baseline Prevalence by type
+
+```{r prevsummary}
+nrti_muts <- c("tr41",  "tr210", "tr215", "tr67",  "tr70",  "tr219", "tr184")
+nnrti_muts <- c("tr103", "tr181", "tr190")
+
+# PR summary
+pr_baseline_muts <- baseline %>% 
+   filter(str_sub(type, 1, 2) == "pr") %>% 
+   summarize(avg_no = mean(num), avg_pct = mean(pct))
+pr_baseline_muts
+
+# NRTI summary
+nrti_baseline_muts <- baseline %>% 
+   filter(type %in% nrti_muts) %>% 
+   summarize(avg_no = mean(num), avg_pct = mean(pct))
+nrti_baseline_muts
+
+# NNRTI summary
+nnrti_baseline_muts <- baseline %>% 
+   filter(type %in% nnrti_muts) %>% 
+   summarize(avg_no = mean(num), avg_pct = mean(pct))
+nnrti_baseline_muts
+
+
+```
+
+## Check on pr77 & pr88 -- Codons with increasing # of mutations
+
+```{r pr7788}
+rev_groups <- readRDS("rev_groups.rds")
+# change revgroups$n to revgroups$pac
+rev_groups <- rev_groups %>% 
+      rename(pac = n)
+pacs_resist <- rev_groups  %>% 
+   filter(rev_group != 0) # group numbers > 0 are resistant; 0 = controls
+pacs_resist <- as.numeric(pacs_resist$pac)
+prpbm2 <- readRDS('prpbm2.rds')
+mut_obj <- prpbm2 %>%
+      rename(pac = n)
+# Survival on each codon alone with only cases from that codon
+# set up df with only a single codon
+single_db <- mut_obj %>% 
+   filter(type == "pr77" & pac %in% pacs_resist)
+# how many patients show a pr46 mutation?
+single_show <- single_db %>% 
+   group_by(pac) %>% 
+   summarise(tot = sum(value))
+# Isolate those patients who show the mutation
+single_pos <- single_show[single_show$tot > 0,]
+single_pos <- single_pos$pac
+# eliminate the other cases from the data 
+single_rev <- single_db %>% 
+      filter(pac %in% single_pos)
+## How many patients have mutation in each week
+single_rev %>% 
+   filter(value == 0) %>% 
+   group_by(wk) %>%
+   summarise(tot = n())
+
+singlesurv <- survival::Surv(time = single_rev$wk, event = single_rev$value == 1)
+   single_bw <- survival::survfit(singlesurv ~ 1, data = single_rev)
+   print(paste("Codon", "pr77"))
+   print(summary(single_bw))
+```
+

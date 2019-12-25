@@ -1,0 +1,51 @@
+---
+title: "STI Demography"
+author: "James R. Hunter"
+date: "5/25/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, fig.height = 3, fig.width = 5)
+knitr::knit_hooks$set(mysize = function(before, options, envir) {
+  if (before) 
+    return(options$size)
+})
+```
+
+```{r loadmods, echo = FALSE, message = FALSE}
+library(tidyverse)
+library(readxl)
+library(knitr)
+library(DescTools)
+library(ggpubr)
+library(Hmisc)
+library(kableExtra)
+options(scipen = 1)
+  
+```
+
+## Read in data from demog.xlsx (former DH.xls)
+
+This will read in the demographic data (age, sex) from Domingos' original spreadsheet, eliminate all the rows that don't have the demographic data (those with drug data), eliminate the case that left the study, and eliminate the controls (15 and 16 in Domingos' numbering system, col. 2). This is then the demography of the **resistant patients**.
+
+```{r read_demog, message = FALSE, warning = FALSE}
+demog <- read_excel("demog.xlsx", sheet = "Raw", range = "A4:H202", col_names = FALSE, 
+                    col_types = c("numeric", "numeric", "numeric", "skip", "skip", "text", 
+                                  "skip", "skip")) %>% 
+   filter(!is.na(X__3) & X__2 %nin% c(55, 16, 15))  %>% 
+   select(3:4)
+colnames(demog) = c("Age", "Gender") 
+
+demog
+```
+
+## Get summary of age and sex
+
+```{r summary}
+Desc(demog$Age)
+Desc(Age ~ Gender, data = demog)
+Desc(demog$Gender)
+```
+
